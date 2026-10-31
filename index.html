@@ -393,7 +393,7 @@ const catOK=c=>!mepOn()||MEP_CATS.includes(c)||c===OTHER_CAT;
 const RX_SYS=[
  [C_F,/(^|[^A-Z])(F|FP|FA|FS|FPS|SPK|SPR)[-_]|FIRE|SPRINK|\bSPK\b|\bFHC\b|HYDRANT|FIRESUPPRESSION|SMOKE|HEAT\s*DET|\bFACP\b|ดับเพลิง|สปริงเกลอร์|แจ้งเหตุ|เพลิงไหม้/],
  [C_H,/(^|[^A-Z])(M|MH|ME|AC|ACMV|HVAC|MV|VE|EX)[-_]|HVAC|ACMV|DUCT|AIR\s*TERMINAL|AIRTERMINAL|DIFFUSER|GRILLE|\bFCU\b|\bAHU\b|\bCDU\b|\bVRF|\bVRV|CHILLER|\bCHW|CONDENS|REFRIG|COPPER|EXHAUST|VENTILAT|\bFAN\b|FAN\s*COIL|UNITARY|SPLIT\s*TYPE|COOLING|BOILER|\bCOIL\b|แอร์|ปรับอากาศ|ระบายอากาศ|ท่อลม|ท่อน้ำยา|พัดลม/],
- [C_E,/(^|[^A-Z])(E|EE|EL|ELE|ELEC|EP|EC|LT|LTG|PWR|COM|TEL|CCTV|MATV|ELV|SEC|LP)[-_]|ELECT|(?<!SKY)LIGHT(?!WEIGHT)|LUMIN|LAMP|POWER|OUTLET|RECEP|SOCKET|CABLE|CONDUIT|\bEMT\b|\bIMC\b|\bRSC\b|\bTHW\b|\bVAF\b|WIRE|SWITCH|PANEL|\bMDB\b|\bSDB\b|\bDB\b|LOAD\s*CENTER|TRAY|WIREWAY|GROUNDING|GROUND\s*ROD|EARTHING|LIGHTNING|TRANSFORMER|GENERATOR|\bUPS\b|DISTRIBUTIONBOARD|CABLECARRIER|โคม|ไฟฟ้า|เต้ารับ|สวิตช์|สายไฟ|ท่อร้อยสาย|ตู้ไฟ|ฟ้าผ่า|หม้อแปลง/],
+ [C_E,/(^|[^A-Z])(E|EE|EL|ELE|ELEC|EP|EC|LT|LTG|PWR|COM|TEL|CCTV|MATV|ELV|SEC|LP)[-_]|ELECT|(?<!SKY)LIGHT(?!WEIGHT)|LUMIN|LAMP|POWER|OUTLET|RECEP|SOCKET|CABLE|CONDUIT|\bEMT\b|\bIMC\b|\bRSC\b|\bTHW\b|\bVAF\b|WIRE|CIRCUIT|\bCKT|HOME\s*RUN|HOMERUN|\bRCPT|\bPLUG|SWITCH|PANEL|\bMDB\b|\bSDB\b|\bDB\b|LOAD\s*CENTER|TRAY|WIREWAY|GROUNDING|GROUND\s*ROD|EARTHING|LIGHTNING|TRANSFORMER|GENERATOR|\bUPS\b|DISTRIBUTIONBOARD|CABLECARRIER|โคม|ไฟฟ้า|เต้ารับ|สวิตช์|สายไฟ|ท่อร้อยสาย|วงจร|ตู้ไฟ|ฟ้าผ่า|หม้อแปลง/],
  [C_P,/(^|[^A-Z])(P|PL|PLB|PB|SN|SAN|SANI|WS|CW|HW|SW|WW|DR|VP|SD|RW)[-_]|PIPE|PLUMB|SANIT|\bPVC\b|\bPPR\b|HDPE|\bGSP\b|\bGI\b|VALVE|PUMP|TANK|DRAIN|WASTE|SOIL|\bVENT\b|STORM|RAIN|WATER(?!PROOF)|SEWAGE|\bWC\b|TOILET|LAVATORY|BASIN|URINAL|SINK|FAUCET|ประปา|สุขาภิบาล|น้ำดี|น้ำทิ้ง|น้ำเสีย|ท่อน้ำ|โสโครก|ระบายน้ำ|ส้วม|ชักโครก|อ่างล้าง|ก๊อก|ถังเก็บน้ำ|บำบัด/]];
 const RX_NON=/(^|[^A-Z])(A|AR|ARC|ARCH|S|STR|C|CIV|L|LS|I|ID|INT)[-_]|ARCH|STRUC|\bWALL|SLAB|BEAM|COLUMN|FOOTING|\bPILE|DOOR|WINDOW|STAIR|ROOF|CEILING(?!\s*FAN)|FURN|GLAZ|CURTAIN|RAILING|PARTITION|LANDSC|\bTREE|COVERING|MEMBER|REBAR|CONCRETE|ผนัง|คาน|เสา|ประตู|หน้าต่าง|ฝ้า|บันได|หลังคา|โครงสร้าง|สถาปัต|เฟอร์นิเจอร์/;
 const RX_ARCH_PREFIX=/^(A|AR|ARC|ARCH|S|STR|C|CIV|L|LS|I|ID|INT)[-_ ]/i;
@@ -1401,9 +1401,24 @@ function cadAnalyze(name,db,unitOverride){
   const mul=(m,n)=>[m[0]*n[0]+m[2]*n[1],m[1]*n[0]+m[3]*n[1],m[0]*n[2]+m[2]*n[3],m[1]*n[2]+m[3]*n[3],m[0]*n[4]+m[2]*n[5]+m[4],m[1]*n[4]+m[3]*n[5]+m[5]];
   const ap=(m,x,y)=>[m[0]*x+m[2]*y+m[4],m[1]*x+m[3]*y+m[5]];
   const scl=m=>Math.sqrt(Math.abs(m[0]*m[3]-m[1]*m[2]));
+  // NURBS / B-spline evaluation (de Boor); falls back to fit points or the control polygon
+  const splinePts=e=>{const C=(e.controlPoints||[]).filter(q=>q&&isFinite(q.x)),K=e.knots||[],d=+(e.degree||3),W=e.weights&&e.weights.length===C.length?e.weights:null;
+    if(C.length>d&&K.length===C.length+d+1){const t0=K[d],t1=K[C.length],N=Math.min(400,Math.max(16,C.length*10)),out=[];
+      for(let s=0;s<=N;s++){let u=t0+(t1-t0)*s/N;if(s===N)u=t1-1e-9;let k=d;while(k<C.length-1&&u>=K[k+1])k++;
+        const P=[];for(let j=0;j<=d;j++){const c=C[k-d+j],w=W?+W[k-d+j]||1:1;P.push([c.x*w,c.y*w,w])}
+        for(let r=1;r<=d;r++)for(let j=d;j>=r;j--){const i=k-d+j,den=K[i+d-r+1]-K[i],a=den?(u-K[i])/den:0;P[j]=[(1-a)*P[j-1][0]+a*P[j][0],(1-a)*P[j-1][1]+a*P[j][1],(1-a)*P[j-1][2]+a*P[j][2]]}
+        const q=P[d];out.push({x:q[0]/q[2],y:q[1]/q[2]})}return out}
+    const F=(e.fitPoints||[]).filter(q=>q&&isFinite(q.x));return F.length>1?F:C};
   const geom=(e,m)=>{const t=e.type,out=[];
     if(t==="LINE"&&e.startPoint&&e.endPoint)out.push([ap(m,e.startPoint.x,e.startPoint.y),ap(m,e.endPoint.x,e.endPoint.y)]);
-    else if((t==="LWPOLYLINE"||t==="POLYLINE2D"||t==="POLYLINE")&&e.vertices){const v=e.vertices.map(q=>q.point||q);const pts=v.map(q=>ap(m,q.x,q.y));if(((e.flag||e.flags||0)&1)&&pts.length>2)pts.push(pts[0]);for(let i=1;i<pts.length;i++)out.push([pts[i-1],pts[i]])}
+    else if((t==="LWPOLYLINE"||t==="POLYLINE2D"||t==="POLYLINE")&&e.vertices){const v=e.vertices.map(q=>({x:(q.point||q).x,y:(q.point||q).y,b:+(q.bulge||0)}));if(((e.flag||e.flags||0)&1)&&v.length>2)v.push({...v[0],b:0});
+      // arc segments (bulge = tan(angle/4)) are common for curved circuit/home-run lines
+      let pr=ap(m,v[0].x,v[0].y);for(let i=1;i<v.length;i++){const A=v[i-1],Bv=v[i],bu=A.b;
+        if(Math.abs(bu)>1e-6){const dx=Bv.x-A.x,dy=Bv.y-A.y,c=Math.hypot(dx,dy);if(c>0){const th=4*Math.atan(bu),r=c/(2*Math.sin(th/2)),mx=(A.x+Bv.x)/2,my=(A.y+Bv.y)/2,h=r*Math.cos(th/2),cx=mx-h*dy/c,cy=my+h*dx/c;const a0=Math.atan2(A.y-cy,A.x-cx);const n=Math.max(4,Math.ceil(Math.abs(th)/0.3));for(let k=1;k<=n;k++){const a=a0+th*k/n;const q=ap(m,cx+Math.abs(r)*Math.cos(a),cy+Math.abs(r)*Math.sin(a));out.push([pr,q]);pr=q}continue}}
+        const q=ap(m,Bv.x,Bv.y);out.push([pr,q]);pr=q}}
+    else if(t==="SPLINE"){const P=splinePts(e);for(let i=1;i<P.length;i++)out.push([ap(m,P[i-1].x,P[i-1].y),ap(m,P[i].x,P[i].y)])}
+    else if(t==="ELLIPSE"&&e.center&&e.majorAxisEndPoint){const c=e.center,M=e.majorAxisEndPoint,R=+(e.axisRatio||1);let a0=+(e.startAngle||0),a1=e.endAngle==null?2*Math.PI:+e.endAngle;if(a1<=a0)a1+=2*Math.PI;const n=Math.max(8,Math.ceil((a1-a0)/0.2));let pr=null;
+      for(let i=0;i<=n;i++){const a=a0+(a1-a0)*i/n;const x=c.x+M.x*Math.cos(a)-M.y*R*Math.sin(a),y=c.y+M.y*Math.cos(a)+M.x*R*Math.sin(a);const q=ap(m,x,y);if(pr)out.push([pr,q]);pr=q}}
     else if((t==="ARC"||t==="CIRCLE")&&e.center){let a0=t==="CIRCLE"?0:e.startAngle||0,a1=t==="CIRCLE"?2*Math.PI:e.endAngle||0;if(a1<a0)a1+=2*Math.PI;const n=Math.max(6,Math.ceil((a1-a0)/0.3));let pr=null;for(let i=0;i<=n;i++){const a=a0+(a1-a0)*i/n;const p=ap(m,e.center.x+e.radius*Math.cos(a),e.center.y+e.radius*Math.sin(a));if(pr)out.push([pr,p]);pr=p}}
     return out};
   const disp=[];let nseg=0;const MAXSEG=350000;const inserts=[];const texts=[];const layLen={};let lh=0;
@@ -1534,9 +1549,45 @@ function cadAnalyze(name,db,unitOverride){
   // ---- conduit / wiring runs drawn as plain lines on systems layers (+ wire quantities from the cable labels in the drawing)
   const SPEC=/(\d+)\s*[-x×]\s*(\d+(?:\.\d+)?)\s*(?:\/\s*(\d+(?:\.\d+)?)\s*G)?\s*(?:SQ|ตร)/i;
   const runs=[];
-  for(const L in layLen){const ls=layerSys(L);if(!ls||ls==="non")continue;if(pipes.some(p=>p.layer===L))continue;if(/TXT|TEXT|DIM|ANNO|GRID|HATCH|SYMB|LEGEND|TAG|NOTE|TITLE/i.test(L))continue;
+  // layers whose names say nothing (e.g. "0", "Layer1", "NEW") still count as wiring when their lines end on counted electrical devices
+  const ePts=[];for(const ds in lgCount)for(const p of lgCount[ds].pts)ePts.push(p);for(const k in found)if(/^ELE|^FA|^COM/.test(found[k].code||k)||[...found[k].layers].some(l=>layerSys(l)===C_E))for(const p of found[k].pts)ePts.push(p);
+  const touchR2=(0.6/unit)**2,autoE={};
+  if(ePts.length>=3)for(const L in layLen){const ls=layerSys(L);if(ls||/TXT|TEXT|DIM|ANNO|GRID|HATCH|SYMB|LEGEND|TAG|NOTE|TITLE|BORDER|FRAME|DEFPOINTS|VIEWPORT|VPORT/i.test(L))continue;
+    const its=layLen[L].filter(it=>inPlan(it[2],it[3])&&!inLegend(it[2],it[3]));if(its.length<2)continue;const hitDev=new Set();let hitEnds=0;
+    for(const it of its){let h=0;for(const q of [it[4],it[5]])for(let i=0;i<ePts.length;i++){const p=ePts[i];if((p[0]-q[0])**2+(p[1]-q[1])**2<touchR2){hitDev.add(i);h=1}}hitEnds+=h}
+    if(hitDev.size>=3&&hitEnds/its.length>=(L==="0"?0.4:0.25))autoE[L]=hitDev.size}
+  for(const L in layLen){const ls=autoE[L]?C_E:layerSys(L);if(!ls||ls==="non")continue;if(pipes.some(p=>p.layer===L))continue;if(/TXT|TEXT|DIM|ANNO|GRID|HATCH|SYMB|LEGEND|TAG|NOTE|TITLE/i.test(L))continue;
     const its=layLen[L].filter(it=>inPlan(it[2],it[3])&&!inLegend(it[2],it[3]));if(!its.length)continue;const tot=its.reduce((t,it)=>t+it[0],0);if(tot*unit<0.5||tot/its.length*unit<0.3)continue;
     for(const it of its)runs.push({L,len:it[0],h:it[1],m:[it[2],it[3]],a:it[4],b:it[5],spec:null})}
+  // ---- plumbing runs drawn as lines: S W V KW RL CW HW (+ size labels such as 4"S, ø3" W, CW 1", 3/4"HW)
+  const PSYS={S:"ท่อโสโครก (S)",W:"ท่อน้ำทิ้ง (W)",V:"ท่ออากาศ (V)",KW:"ท่อน้ำทิ้งครัว (KW)",RL:"ท่อน้ำฝน (RL)",CW:"ท่อน้ำดี (CW)",HW:"ท่อน้ำร้อน (HW)"};
+  const PK="KW|RL|CW|HW|S|W|V",SZ='(\\d+\\s+\\d\\/\\d|\\d+-\\d\\/\\d|\\d\\/\\d|\\d+(?:\\.\\d+)?)';
+  const PLAB=new RegExp(`(?:ø|DIA\\.?\\s*)?${SZ}\\s*(?:"|''|นิ้ว|MM\\.?|มม\\.?)?\\s*(?:ø)?\\s*[-:.]?\\s*(${PK})\\b|\\b(${PK})\\s*[-:.]?\\s*(?:ø|DIA\\.?)?\\s*${SZ}\\s*(?:"|''|นิ้ว|MM|มม)?`,"i");
+  const MM_IN2={15:"1/2",20:"3/4",25:"1",32:"1 1/4",40:"1 1/2",50:"2",55:"2",65:"2 1/2",75:"3",80:"3",100:"4",110:"4",125:"5",150:"6",160:"6",200:"8"};
+  const normIn=(z,mm)=>{z=String(z).replace(/-/g," ").replace(/\s+/g," ").trim();const v=+z;if(!isNaN(v)&&(mm||v>12))return MM_IN2[Math.round(v)]||null;return z};
+  const layP=L=>{const U=" "+String(L).toUpperCase().replace(/[_\-.]/g," ")+" ";const m=U.match(/ (KW|RL|CW|HW|S|W|V) /);if(m)return m[1];
+    if(/โสโครก|SOIL|SEWER/.test(U))return"S";if(/น้ำทิ้ง|WASTE/.test(U))return/ครัว|KITCHEN/.test(U)?"KW":"W";if(/อากาศ|VENT/.test(U)&&!/HVAC|DUCT/.test(U))return"V";if(/น้ำฝน|RAIN|STORM/.test(U))return"RL";if(/น้ำร้อน|HOT\s*WATER/.test(U))return"HW";if(/น้ำดี|น้ำเย็น|COLD\s*WATER|WATER\s*SUPPLY/.test(U))return"CW";return null};
+  const pLabs=[];for(const t of texts){if(!t.str||t.str.length>40||!inPlan(t.x,t.y)||inLegend(t.x,t.y))continue;const m=PLAB.exec(t.str.toUpperCase());if(!m)continue;
+    const sys=(m[2]||m[3]).toUpperCase(),raw=m[1]||m[4],mm=/MM|มม/.test(t.str.toUpperCase());const sz=normIn(raw,mm);if(!sz||!PSYS[sys])continue;pLabs.push({x:t.x,y:t.y,sys,sz,str:t.str})}
+  const pRuns=[];const pLayers={};
+  for(const L in layLen){if(/TXT|TEXT|DIM|ANNO|GRID|HATCH|SYMB|LEGEND|TAG|NOTE|TITLE|BORDER|FRAME|DEFPOINTS/i.test(L))continue;const ls=layerSys(L);if(ls&&ls!==C_P&&!(ls==="non"&&layP(L)&&(/^(KW|RL|CW|HW|S|W|V)$/i.test(L.trim())||/SOIL|WASTE|VENT|RAIN|SEWER|โสโครก|น้ำทิ้ง|น้ำฝน|น้ำดี|น้ำร้อน/i.test(L))))continue;if(pipes.some(p=>p.layer===L))continue;
+    const its=layLen[L].filter(it=>inPlan(it[2],it[3])&&!inLegend(it[2],it[3]));if(!its.length)continue;
+    const lsys=layP(L);let near=0;if(!lsys){for(const lb of pLabs){let bd=(1.5/unit)**2,hit=false;for(const it of its){const d=(it[2]-lb.x)**2+(it[3]-lb.y)**2;if(d<bd){hit=true;break}}if(hit)near++}}
+    if(!lsys&&ls!==C_P&&near<2)continue;pLayers[L]={sys:lsys,byLabel:!lsys&&ls!==C_P};for(const it of its)pRuns.push({L,len:it[0],h:it[1],m:[it[2],it[3]],a:it[4],b:it[5],ps:null})}
+  if(pRuns.length){for(let i=runs.length-1;i>=0;i--)if(pLayers[runs[i].L])runs.splice(i,1);
+    for(const lb of pLabs){let best=null,bd=(3/unit)**2;for(const r of pRuns){if(pLayers[r.L].sys&&pLayers[r.L].sys!==lb.sys)continue;for(const q of [r.a,r.b,r.m]){const d=(q[0]-lb.x)**2+(q[1]-lb.y)**2;if(d<bd){bd=d;best=r}}}if(best&&!best.ps)best.ps={sys:lb.sys,sz:lb.sz,str:lb.str}}
+    const nr=(p,q)=>(p[0]-q[0])**2+(p[1]-q[1])**2<(0.25/unit)**2;
+    for(let k=0;k<40;k++){let ch=false;for(const r of pRuns){if(r.ps)continue;const o=pRuns.find(o=>o.ps&&o.L===r.L&&(nr(o.a,r.a)||nr(o.a,r.b)||nr(o.b,r.a)||nr(o.b,r.b)));if(o){r.ps=o.ps;r.inh=true;ch=true}}if(!ch)break}
+    const pBy={};for(const r of pRuns)(pBy[r.L]=pBy[r.L]||[]).push(r);
+    for(const L in pBy){const rs=pBy[L],cnt={};for(const r of rs)if(r.ps&&!r.inh){const k=r.ps.sys+"|"+r.ps.sz;cnt[k]=(cnt[k]||0)+1}const maj=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0];
+      for(const r of rs)if(!r.ps){if(maj){const [sy,sz]=maj[0].split("|");r.ps={sys:sy,sz,str:""};r.guess=true}else r.ps={sys:pLayers[L].sys||"?",sz:null,str:""}}}
+    const G={};for(const r of pRuns){const k=r.ps.sys+"|"+(r.ps.sz||"?");const g=G[k]=G[k]||{sys:r.ps.sys,sz:r.ps.sz,len:0,hs:[],layers:new Set(),guess:false,labels:new Set(),byLabel:false};g.len+=r.len;g.hs.push(r.h);g.layers.add(r.L);if(r.guess||!r.ps.str)g.guess=true;if(r.ps.str)g.labels.add(r.ps.str);if(pLayers[r.L].byLabel)g.byLabel=true}
+    for(const k in G){const g=G[k];if(g.len*unit<0.3)continue;const ck=g.sz?(IN_CODE[g.sz]||String(g.sz).replace(/\s+/g,"").replace("/","")):null;const big=g.sz&&!/\//.test(g.sz)&&+String(g.sz).split(" ")[0]>=2;
+      const pref=g.sys==="HW"?["SAN-PPR-"]:g.sys==="CW"?["SAN-PVC135-","SAN-PVC85-"]:["SAN-DRN-","SAN-PVC85-"];let code=null;if(ck)for(const pf of pref)if(has(pf+ck)){code=pf+ck;break}
+      const nm=PSYS[g.sys]||"ท่อประปา/ระบายน้ำ (ไม่ทราบระบบ)";
+      out.push({id:`${name}|cadpipe|${k}`,file:name,kind:"auto",mtype:"len",label:`${nm}${g.sz?` ø${g.sz}"`:" (ไม่ทราบขนาด)"}`,layer:[...g.layers].join(", "),hint:`${g.sys} PIPE${g.sz?` ${g.sz}"`:""} ท่อ`,qty:g.len*unit,unit:"ม.",refs:{handles:g.hs},
+        ...(code?{code,conf:g.guess||g.byLabel?2:3}:{}),sizeHint:g.sz?{inch:g.sz}:null,note:g.guess?"บางช่วงไม่มีป้ายขนาด ใช้ขนาดจากช่วงที่ต่อกันหรือที่พบมากใน Layer":"",
+        src:`${name} · ${nm}${g.sz?` ø${g.sz}"`:""} · Layer ${[...g.layers].slice(0,3).join(", ")} · ${g.hs.length} เส้น · ความยาวตามแปลน (ไม่รวมท่อแนวดิ่ง)${g.labels.size?` · ป้ายในแบบ: ${[...g.labels].slice(0,3).join(" | ")}`:""}${g.byLabel?" · ชื่อ Layer ไม่บอกระบบ อ่านจากป้ายท่อ":""}`})}}
   const specT=texts.filter(t=>t.str&&SPEC.test(t.str)&&inPlan(t.x,t.y)&&!inLegend(t.x,t.y));
   for(const t of specT){let best=null,bd=(3/unit)**2;for(const r of runs)for(const q of [r.a,r.b,r.m]){const d=(q[0]-t.x)**2+(q[1]-t.y)**2;if(d<bd){bd=d;best=r}}if(best&&!best.spec)best.spec=t.str}
   const near=(p,q)=>(p[0]-q[0])**2+(p[1]-q[1])**2<(0.25/unit)**2;
@@ -1546,8 +1597,8 @@ function cadAnalyze(name,db,unitOverride){
     for(const r of rs)if(!r.spec&&maj){r.spec=maj[0];r.guess=true}
     const len=rs.reduce((t,r)=>t+r.len,0);const sp=[...new Set(rs.map(r=>r.spec).filter(Boolean))];
     const conduit=sp.map(x=>(x.match(/IN\s*(?:ø|%%C)?\s*([\d\s\/]+)"?\s*(EMT|IMC|RSC|PVC|FLEX)?/i)||[])[0]).filter(Boolean)[0]||"";
-    out.push({id:`${name}|cadlen|${L}`,file:name,kind:"auto",mtype:"len",label:`แนวท่อ/สาย ${L}${conduit?` (${conduit.trim()})`:""}`,layer:L,hint:conduit,qty:len*unit,unit:"ม.",refs:{handles:rs.map(r=>r.h)},
-      src:`${name} · Layer ${L} · ${rs.length} เส้น · ความยาวแนวท่อตามแปลน${usePlan&&plan.length?" · เฉพาะแปลนในแผ่นงาน":""} · ไม่รวมแนวดิ่ง${sp.length?` · ป้ายในแบบ: ${sp.slice(0,3).join(" | ")}`:""}`})}
+    out.push({id:`${name}|cadlen|${L}`,file:name,kind:"auto",mtype:"len",label:`${autoE[L]?"แนวสายไฟ/ท่อร้อยสาย":"แนวท่อ/สาย"} ${L}${conduit?` (${conduit.trim()})`:""}`,layer:L,hint:conduit,qty:len*unit,unit:"ม.",refs:{handles:rs.map(r=>r.h)},
+      src:`${name} · Layer ${L}${autoE[L]?` (ชื่อ Layer ไม่บอกระบบ แต่เส้นต่อกับอุปกรณ์ไฟฟ้า ${autoE[L]} จุด จึงนับเป็นแนวสายไฟ ควรตรวจ)`:""} · ${rs.length} เส้น · ความยาวแนวท่อตามแปลน${usePlan&&plan.length?" · เฉพาะแปลนในแผ่นงาน":""} · ไม่รวมแนวดิ่ง${sp.length?` · ป้ายในแบบ: ${sp.slice(0,3).join(" | ")}`:""}`})}
   const wDrop=+(P.auto?.wDrop)||0,wTerm=+(P.auto?.wTerm)||0,wWaste=+(P.auto?.wWaste)||0,wDef=(P.auto?.wDef||"").trim();
   const UTP=/UTP|CAT\s*[56]|FTP|LAN|COAX|RG\s*6|FIBER/i;
   const utL={};for(const t of texts){if(!t.str||!UTP.test(t.str)||SPEC.test(t.str)||!inPlan(t.x,t.y)||inLegend(t.x,t.y))continue;
@@ -1639,6 +1690,7 @@ function rulesData(){const A=P.auto||{},v=x=>`[[${x}]]`,n=(x,u)=>v(`${+x||0} ${u
   ["4. แนวท่อร้อยสาย / แนวสาย",[
     "ความยาว = ผลรวมความยาวเส้นบน Layer งานระบบแต่ละ Layer ตามแปลน (ระยะราบ 2 มิติ) ไม่รวม Layer ข้อความ มิติ กริด ลายแฮทช์",
     "ขนาดท่อร้อยสายอ่านจากป้ายในแบบ เช่น “IN 1/2\" EMT”",
+    "อ่านเส้นได้ทุกแบบ: เส้นตรง, Polyline ที่มีส่วนโค้ง (bulge), Arc, Spline และ Ellipse · Layer ที่ชื่อไม่บอกระบบ (เช่น 0, NEW, Layer1) นับเป็นแนวสายไฟเมื่อปลายเส้นต่อกับอุปกรณ์ไฟฟ้าที่นับได้ตั้งแต่ 3 จุดขึ้นไป (ขึ้นเป็น “ควรตรวจ”)",
     "ไม่รวมแนวดิ่งของท่อ (ขึ้น-ลงจากฝ้า ไรเซอร์) เพราะแปลนไม่มีความสูงให้วัด"]],
   ["5. สายไฟ",[
     "อ่านป้ายขนาดสายในแบบ รูปแบบ “จำนวนเส้น-ขนาด/ขนาดสายดิน G” เช่น 2-4/2.5G Sq.mm. = สายไฟ 4 ตร.มม. 2 เส้น + สายดิน 2.5 ตร.มม. 1 เส้น",
@@ -1653,6 +1705,7 @@ function rulesData(){const A=P.auto||{},v=x=>`[[${x}]]`,n=(x,u)=>v(`${+x||0} ${u
     "สาย UTP / CAT6 / โคแอกซ์: อ่านจากป้ายข้างแนว คิด 1 เส้นตามแนวท่อ บวกค่าเผื่อแบบเดียวกัน (“4 PAIRS” คือจำนวนคู่ในสาย 1 เส้น ไม่ใช่ 4 เส้น)"]],
   ["6. ท่อน้ำ / ท่อดับเพลิง / ท่อลม",[
     "ความยาวท่อจาก Block ท่อหรือเส้นบน Layer ท่อ ขนาดจากชื่อ Block หรือป้ายขนาดที่ใกล้ที่สุด",
+    "ท่อสุขาภิบาลแยกตามระบบ S (โสโครก) W (น้ำทิ้ง) V (อากาศ) KW (น้ำทิ้งครัว) RL (น้ำฝน) CW (น้ำดี) HW (น้ำร้อน) จากชื่อ Layer หรือป้ายท่อ เช่น 4\"S, ø3\" W, CW 1\", 3/4\"HW · ป้ายใช้กับเส้นท่อที่ใกล้ที่สุด (ไม่เกิน 3 ม.) แล้วส่งต่อไปตามเส้นที่ต่อกัน · ราคา: S/W/V/KW/RL = ท่อ PVC ระบายน้ำชั้น 8.5, CW = PVC ชั้น 13.5 (โตกว่า 1 1/4\" ใช้ชั้น 8.5), HW = PP-R · ไม่รวมท่อแนวดิ่งและข้อต่อ",
     `ท่อดร็อปหัวสปริงเกลอร์ = จำนวนหัว × ${n(A.dropLen,"ม./หัว")} ใช้ท่อ ø1"`,
     `ค่าเผื่อตัดท่อในรายงาน ${n(A.pipeWaste,"%")} · จำนวนท่อน = ความยาวรวม ÷ 6 ม. ปัดขึ้น`,
     "ท่อลมสี่เหลี่ยม: พื้นที่แผ่น (ตร.ฟ.) = เส้นรอบรูป (ม.) × 10.764 × ความยาวท่อ · ความหนาสังกะสีตามด้านยาวสุด (SMACNA): ≤300 มม. BWG26, ≤750 BWG24, ≤1350 BWG22, ≤2100 BWG20, ใหญ่กว่า BWG18 · ท่อลมจ่าย/กลับคิดฉนวนพื้นที่เท่ากัน ท่อลมระบายไม่คิดฉนวน · ค่าเผื่อตะเข็บ/เศษแผ่น 15% · ท่อ PID คิดเป็น ตร.ม. ผิวท่อ",
