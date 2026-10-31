@@ -741,7 +741,7 @@ function commitDraft(){
   const t={id:"m-"+uid(),file:cur.file,kind:"manual",mtype:mt,label:name,qty:measure(mt,pts,sc),unit:mt==="count"?"จุด":mt==="area"?"ตร.ม.":"ม.",refs:{page:cur.page,pts},src:`${cur.file}${pg} · วัดเอง ${pts.length} จุด${mt!=="count"&&f.kind!=="dxf"?" · "+(P.calib[cur.file+"#"+cur.page+"#lbl"]||""):""}`};
   P.takeoffs.push(t);sel=t.id;draft={mtype:mt,pts:[]};save();renderTO();draw();hud();
 }
-function recalcManual(){for(const t of P.takeoffs){if(t.kind==="pdfauto"&&t.refs.type==="vec"&&t.file===cur.file&&t.refs.page===cur.page){const sc=scaleNow();t.qty=sc?t.refs.pt*sc:0;t.src=t.src.replace(" · ยังไม่ตั้งสเกล","");continue}if(t.kind!=="manual"||t.file!==cur.file||(t.refs.page||1)!==cur.page||t.mtype==="count")continue;t.qty=measure(t.mtype,t.refs.pts,scaleNow())}renderTO();renderBOQ()}
+function recalcManual(){if(F[cur.file]?.kind==="pdf"&&P.takeoffs.some(t=>t.pipe2&&t.file===cur.file&&t.refs.page===cur.page)){const n=cur.file;setTimeout(async()=>{await pdfAuto(n);autoBuild([n]);renderTO();renderBOQ();draw();hud()},0)}for(const t of P.takeoffs){if(t.kind==="pdfauto"&&t.refs.type==="vec"&&t.file===cur.file&&t.refs.page===cur.page){const sc=scaleNow();t.qty=sc?t.refs.pt*sc:0;t.src=t.src.replace(" · ยังไม่ตั้งสเกล","");continue}if(t.kind!=="manual"||t.file!==cur.file||(t.refs.page||1)!==cur.page||t.mtype==="count")continue;t.qty=measure(t.mtype,t.refs.pts,scaleNow())}renderTO();renderBOQ()}
 function setTool(t){tool=t;$$("[data-tool]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.tool===t)));draft=t==="pan"?null:{mtype:t,pts:[]};draw();hud()}
 $$("[data-tool]").forEach(b=>b.onclick=()=>{if(!F[cur.file]||!world){toast("เปิดไฟล์ DXF, PDF หรือรูปก่อน");return}setTool(b.dataset.tool)});
 $("#btnFit").onclick=()=>world&&fit(world.bbox);
@@ -1230,7 +1230,7 @@ async function pdfVectors(pdf,pn){
   }
   const texts=[];let all="";
   for(const it of tc.items){const s=(it.str||"").trim();if(!s)continue;all+=" "+s;const [x,y]=vp.convertToViewportPoint(it.transform[4],it.transform[5]);texts.push({x:x+(it.width||0)/2,y:y-(it.height||6)/2,str:s})}
-  const sc={};for(const m of all.matchAll(/1\s*[:：]\s*(\d{2,4})(?!\d)/g)){const n=+m[1];if(n>=10&&n<=2000)sc[n]=(sc[n]||0)+1}
+  const sc={};const STDSC=new Set([10,20,25,30,40,50,60,75,80,100,120,125,150,200,250,300,400,500,600,750,1000,1250,1500,2000]);for(const m of all.matchAll(/1\s*[:：]\s*(\d{2,4})(?!\d)/g)){const n=+m[1];if(STDSC.has(n))sc[n]=(sc[n]||0)+1}
   const scaleN=+(Object.entries(sc).sort((a,b)=>b[1]-a[1])[0]||[0])[0]||null;
   // groups → candidates
   let groups=[...G.values()].filter(g=>g.len>=36).sort((a,b)=>b.len-a.len).slice(0,80);
@@ -1252,7 +1252,21 @@ async function pdfVectors(pdf,pn){
   const totL=groups.reduce((a,g)=>a+g.len,0)||1;
   const colL=[...G.values()].filter(g=>{const m=/^#(..)(..)(..)$/.exec(g.col);if(!m)return false;const v=[m[1],m[2],m[3]].map(h=>parseInt(h,16));return Math.max(...v)-Math.min(...v)>40}).reduce((a,g)=>a+g.len,0);
   const mono=colL/totL<0.05, noText=texts.length<20;
-  return {groups:out,segs:segStore,tags,scaleN,w:vp.width,h:vp.height,mono,noText,trunc:nseg>=MAX,all:ALL,circles:CIR,prim:PRIM};
+  const pipes2=[];
+  for(const g of G.values()){const m=/^#(..)(..)(..)$/.exec(g.col);if(!m)continue;const v=[m[1],m[2],m[3]].map(h=>parseInt(h,16));if(Math.max(...v)-Math.min(...v)<60||g.segs.length<4)continue;
+    const L=[];for(const s0 of g.segs){const dx=s0[2]-s0[0],dy=s0[3]-s0[1],l=Math.hypot(dx,dy);if(l<10)continue;let ang=Math.atan2(dy,dx);if(ang<0)ang+=Math.PI;if(ang>=Math.PI)ang-=Math.PI;const ux=Math.cos(ang),uy=Math.sin(ang);
+      const t0=s0[0]*ux+s0[1]*uy,t1=s0[2]*ux+s0[3]*uy;L.push({s:s0,a:Math.round(ang*180/Math.PI)%180,c:-uy*s0[0]+ux*s0[1],t0:Math.min(t0,t1),t1:Math.max(t0,t1),l})}
+    const bins=new Map();for(const q of L){for(const a of [q.a,(q.a+1)%180,(q.a+179)%180]){let b=bins.get(a);if(!b)bins.set(a,b=[]);if(a===q.a)b.push(q)}}
+    const W=new Map();
+    for(const q of L){let best=null,bd=1e9;for(const a of [q.a,(q.a+1)%180,(q.a+179)%180]){const b=bins.get(a);if(!b)continue;for(const r of b){if(r===q)continue;const d=r.c-q.c;if(d<1.2||d>30)continue;const ov=Math.min(q.t1,r.t1)-Math.max(q.t0,r.t0);if(ov<0.6*Math.min(q.l,r.l))continue;if(d<bd){bd=d;best={r,ov}}}}
+      if(!best)continue;const wk=Math.round(bd*5)/5;let w=W.get(wk);if(!w)W.set(wk,w={w:wk,len:0,segs:[],n:0});w.len+=best.ov;w.n++;w.segs.push(q.s,best.r.s)}
+    const cl=[...W.values()].sort((a,b)=>a.w-b.w);const merged=[];for(const w of cl){const last=merged[merged.length-1];if(last&&w.w<=last.w*1.08+0.2){const tot=last.len+w.len;last.w=(last.w*last.len+w.w*w.len)/tot;last.len=tot;last.n+=w.n;last.segs.push(...w.segs)}else merged.push({...w,segs:[...w.segs]})}
+    const pairLen=merged.reduce((a,w)=>a+w.len,0),ratio=2*pairLen/(g.len||1);
+    // real pipe colours: walls pair up for a good share of the colour (dimension/grid lines rarely do; hatch-like symbols pair too often)
+    if(ratio<0.3||ratio>1.1)continue;
+    for(const w of merged)if(w.len>=40&&w.n>=10)pipes2.push({col:g.col,w:w.w,len:w.len,n:w.n,ratio,key:"pp|"+g.col+"|"+w.w.toFixed(1),segs:w.segs})}
+  for(const pp of pipes2)segStore[pp.key]=pp.segs;
+  return {groups:out,segs:segStore,tags,scaleN,w:vp.width,h:vp.height,mono,noText,trunc:nseg>=MAX,all:ALL,circles:CIR,prim:PRIM,pipes2};
 }
 async function pdfAuto(name,onProg){
   const f=F[name];f.vec=f.vec||{};const out=[];const bad=[];const maxP=Math.min(f.pages,40);
@@ -1262,6 +1276,12 @@ async function pdfAuto(name,onProg){
     let sc=P.calib[name+"#"+pn];if(!sc&&v.scaleN){sc=0.0254/72*v.scaleN;P.calib[name+"#"+pn]=sc;P.calib[name+"#"+pn+"#lbl"]=`1:${v.scaleN} (อ่านจากแบบ)`}
     for(const g of v.groups)out.push({id:`${name}|p${pn}|vec|${g.key}`,file:name,kind:"pdfauto",mtype:"len",label:g.label,layer:g.col,hint:g.hint,sizeHint:g.size,qty:sc?g.len*sc:0,unit:"ม.",
       refs:{page:pn,type:"vec",gk:g.key,pt:g.len},src:`${name} · หน้า ${pn} · ${g.desc} · ${g.n} เส้น${sc?"":" · ยังไม่ตั้งสเกล"}`});
+    const OD=[["1/2",22],["3/4",26.7],["1",34],["1 1/4",42],["1 1/2",48],["2",60],["2 1/2",76],["3",89],["4",114],["5",140],["6",165],["8",216],["10",267],["12",318]];
+    for(const pp of v.pipes2||[]){const mm=sc?pp.w*sc*1000:0;let sz=null;if(mm){let bd=1e9;for(const [n,o] of OD){const d=Math.abs(mm-o)/o;if(d<bd){bd=d;sz=n}}if(bd>0.18)sz=null}
+      const ck=sz?IN_CODE[sz]:null;let code=null;if(ck)for(const pf of (["2","2 1/2","3","4","6"].includes(sz)?["SAN-DRN-","SAN-PVC85-"]:["SAN-PVC85-","SAN-PVC135-"]))if(has(pf+ck)){code=pf+ck;break}
+      out.push({id:`${name}|p${pn}|vec|${pp.key}`,file:name,kind:"pdfauto",mtype:"len",pipe2:true,label:`ท่อ (เส้นคู่) สี ${pp.col}${sz?` ø${sz}"`:mm?` กว้าง ${mm.toFixed(0)} มม.`:""}`,layer:pp.col,hint:`ท่อ PIPE${sz?` ${sz}"`:""}`,sizeHint:sz?{inch:sz}:null,
+        qty:sc?pp.len*sc:0,unit:"ม.",...(code?{code,conf:1}:{}),note:"ท่อที่วาดเป็นเส้นคู่ ขนาดจากระยะห่างผนังท่อในแบบ ระบบท่อ (S/W/RL/CW ฯลฯ) ดูจากสีและป้ายในแบบ ควรตรวจ",refs:{page:pn,type:"vec",gk:pp.key,pt:pp.len},
+        src:`${name} · หน้า ${pn} · ท่อวาดเป็นเส้นคู่ สี ${pp.col} · ${pp.n} ช่วง · ความยาวตามแนวท่อ${mm?` · ระยะผนังท่อ ${mm.toFixed(0)} มม.${sz?` ≈ ø${sz}"`:""}`:" · ยังไม่ตั้งสเกล (ขนาดท่อคิดหลังตั้งสเกล)"}`})}
     for(const tg of v.tags)out.push({id:`${name}|p${pn}|tag|${tg.text}`,file:name,kind:"pdfauto",mtype:"count",label:`สัญลักษณ์ “${tg.text}”`,hint:tg.text,qty:tg.pts.length,unit:"จุด",
       refs:{page:pn,type:"text",pts:tg.pts},src:`${name} · หน้า ${pn} · พบข้อความ “${tg.text}” ${tg.pts.length} ตำแหน่ง`});
   }
@@ -1738,7 +1758,7 @@ $("#btnRuleX").onclick=()=>{if(!window.XLSX){toast("ตัวสร้าง Exc
 $("#btnRuleSet").onclick=()=>{showTab("draw");$("#autoSet").open=true;$("#autoSet").scrollIntoView({block:"start",behavior:"smooth"})};
 
 /* ======== BOOT ======== */
-window.__qto={get catalog(){return catalog},F,matchTakeoff:t=>matchTakeoff(t),cadAnalyze:(...a)=>cadAnalyze(...a),symPickBox:b=>symPickBox(b),get P(){return P}};
+window.__qto={get catalog(){return catalog},pdfAuto:(n)=>pdfAuto(n),F,matchTakeoff:t=>matchTakeoff(t),cadAnalyze:(...a)=>cadAnalyze(...a),symPickBox:b=>symPickBox(b),get P(){return P}};
 P=load();const first=!P;if(!P)P=blank();
 P.auto=Object.assign({wallH:3,onOpen:true,unmatched:true,dropLen:0.4,mepOnly:true,hideUnk:false,sysFilter:""},P.auto||{});
 $("#mepOnly").checked=mepOn();
