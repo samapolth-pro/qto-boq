@@ -253,6 +253,7 @@ table.pb td.r{text-align:right}
      <button class="btn sm" data-tool="area" aria-pressed="false">วัดพื้นที่</button>
      <button class="btn sm" data-tool="count" aria-pressed="false">นับจุด</button>
      <button class="btn sm" data-tool="sym" aria-pressed="false" title="ลากกรอบครอบสัญลักษณ์ 1 ตัวในแบบ PDF โปรแกรมจะนับตัวที่เหมือนกันทั้งแผ่น">นับสัญลักษณ์เหมือนกัน</button>
+     <button class="btn sm" data-tool="psys" aria-pressed="false" title="แบบ PDF ที่ป้ายท่อเป็นเส้น: ลากกรอบครอบตัวอักษร RL / FD / S … ในป้าย 1 ป้าย โปรแกรมจะแยกท่อตามระบบให้">ระบบท่อจากป้าย</button>
      <button class="btn sm" data-tool="cal" aria-pressed="false">ตั้งสเกล</button>
      <span class="sep"></span>
      <button class="btn sm" id="btnFit">พอดีจอ</button>
@@ -717,6 +718,12 @@ function hud(){
 }
 function tobar(){
   const b=$("#tobar");
+  if(draft&&draft.mtype==="psys"){const keep=$("#psysSel")?.value||"RL";const lab=P.pipeLab?.[cur.file+"#"+cur.page]||[];
+    b.innerHTML=`<b>ลากกรอบครอบตัวอักษรระบบท่อในป้าย 1 ป้าย</b> <span class="muted">เช่น ครอบเฉพาะ “RL” ใน ø4"-RL · โปรแกรมหาป้ายเดียวกันทั้งแผ่นแล้วแยกท่อตามระบบ (ทำซ้ำกับ FD, S, W …)</span>
+     <select id="psysSel" aria-label="ระบบท่อ">${["RL","FD","S","W","V","KW","CW","HW","อื่นๆ"].map(x=>`<option${x===keep?" selected":""}>${x}</option>`).join("")}</select> <input id="psysOther" size="6" placeholder="ชื่อระบบ" aria-label="ชื่อระบบอื่น"${keep==="อื่นๆ"?"":" hidden"}>
+     ${lab.length?`<span class="muted">ตั้งแล้ว: ${lab.map(x=>`${esc(x.sys)} ${x.pts.length} ป้าย`).join(" · ")}</span> <button class="btn sm" id="psysClr">ล้าง</button>`:""} <button class="btn sm" id="dCancel">เสร็จ</button>`;
+    $("#psysSel").onchange=e=>{$("#psysOther").hidden=e.target.value!=="อื่นๆ"};$("#dCancel").onclick=()=>setTool("pan");
+    if($("#psysClr"))$("#psysClr").onclick=async()=>{delete P.pipeLab[cur.file+"#"+cur.page];save();await pdfAuto(cur.file);autoBuild([cur.file]);renderTO();renderBOQ();draw();hud()};return}
   if(draft&&draft.mtype==="sym"){const keep=$("#dName")?.value||"";b.innerHTML=`<b>ลากกรอบครอบสัญลักษณ์ 1 ตัว</b> <span class="muted">โปรแกรมจะนับตัวที่หน้าตาเหมือนกันทั้งหน้า (ซูมเข้าก่อนจะลากได้แม่นขึ้น · เลื่อนแบบให้กดปุ่ม “เลื่อน”)</span> <input id="dName" placeholder="ชื่อรายการ เช่น เต้ารับคู่" size="20" aria-label="ชื่อรายการ"> <button class="btn sm" id="dCancel">เสร็จ</button>`;$("#dName").value=keep;$("#dCancel").onclick=()=>setTool("pan");return}
   if(draft&&draft.pts.length){b.innerHTML=`<b>${draft.mtype==="cal"?"แตะ 2 จุดบนระยะที่รู้ค่า":"แตะในแบบเพื่อเพิ่มจุด"}</b> <span class="muted">${draft.pts.length} จุด</span>
    ${draft.mtype==="cal"?`<input id="calLen" class="num" inputmode="decimal" placeholder="ระยะจริง (ม.)" size="10" aria-label="ระยะจริงเป็นเมตร"> <button class="btn sm primary" id="calOk">ตั้งสเกล</button>`:`<input id="dName" placeholder="ชื่อรายการ เช่น ท่อน้ำดี ø1/2&quot;" size="22" aria-label="ชื่อรายการวัด"> <button class="btn sm primary" id="dOk">บันทึก</button>`}
@@ -766,11 +773,11 @@ const ptrs=new Map(); let moved=false, pinch0=null;
 stage.addEventListener("pointerdown",e=>{if(!world)return;stage.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY,x0:e.clientX,y0:e.clientY});moved=false;if(ptrs.size===2){const [a,b]=[...ptrs.values()];pinch0={d:Math.hypot(a.x-b.x,a.y-b.y),s:V.s,tx:V.tx,ty:V.ty,cx:(a.x+b.x)/2,cy:(a.y+b.y)/2}}});
 stage.addEventListener("pointermove",e=>{const p=ptrs.get(e.pointerId);if(!p)return;const dx=e.clientX-p.x,dy=e.clientY-p.y;p.x=e.clientX;p.y=e.clientY;if(Math.hypot(p.x-p.x0,p.y-p.y0)>5)moved=true;
   if(ptrs.size===2&&pinch0){const [a,b]=[...ptrs.values()];const r=stage.getBoundingClientRect();const k=Math.hypot(a.x-b.x,a.y-b.y)/pinch0.d;const cx=pinch0.cx-r.left,cy=pinch0.cy-r.top;V.s=pinch0.s*k;V.tx=cx-(cx-pinch0.tx)*k;V.ty=cy-(cy-pinch0.ty)*k;draw();return}
-  if(moved&&draft&&draft.mtype==="sym"&&ptrs.size===1){const r=stage.getBoundingClientRect();draft.box=[...S2W(p.x0-r.left,p.y0-r.top),...S2W(p.x-r.left,p.y-r.top)];draw();return}
+  if(moved&&draft&&(draft.mtype==="sym"||draft.mtype==="psys")&&ptrs.size===1){const r=stage.getBoundingClientRect();draft.box=[...S2W(p.x0-r.left,p.y0-r.top),...S2W(p.x-r.left,p.y-r.top)];draw();return}
   if(moved){V.tx+=dx;V.ty+=dy;draw()}});
 const up=e=>{const p=ptrs.get(e.pointerId);ptrs.delete(e.pointerId);if(ptrs.size<2)pinch0=null;
-  if(p&&draft&&draft.mtype==="sym"&&ptrs.size===0){const r=stage.getBoundingClientRect();let b=draft.box;draft.box=null;
-    if(!moved||!b){const [x,y]=S2W(e.clientX-r.left,e.clientY-r.top);const h=10/V.s;b=[x-h,y-h,x+h,y+h]}draw();symPickBox(b);return}
+  if(p&&draft&&(draft.mtype==="sym"||draft.mtype==="psys")&&ptrs.size===0){const r=stage.getBoundingClientRect();let b=draft.box;draft.box=null;
+    if(!moved||!b){const [x,y]=S2W(e.clientX-r.left,e.clientY-r.top);const h=10/V.s;b=[x-h,y-h,x+h,y+h]}draw();if(draft.mtype==="psys")psysPickBox(b);else symPickBox(b);return}
   if(p&&!moved&&draft&&ptrs.size===0){const r=stage.getBoundingClientRect();const w=S2W(e.clientX-r.left,e.clientY-r.top);if(draft.mtype==="cal"&&draft.pts.length>=2)draft.pts=[];draft.pts.push(w);draw();hud();if(draft.mtype==="cal"&&draft.pts.length===2)$("#calLen")?.focus()}};
 stage.addEventListener("pointerup",up);stage.addEventListener("pointercancel",up);
 stage.addEventListener("wheel",e=>{if(!world)return;e.preventDefault();const r=stage.getBoundingClientRect();const k=Math.exp(-e.deltaY*0.0015);const cx=e.clientX-r.left,cy=e.clientY-r.top;V.tx=cx-(cx-V.tx)*k;V.ty=cy-(cy-V.ty)*k;V.s*=k;draw()},{passive:false});
@@ -1257,31 +1264,75 @@ async function pdfVectors(pdf,pn){
     const L=[];for(const s0 of g.segs){const dx=s0[2]-s0[0],dy=s0[3]-s0[1],l=Math.hypot(dx,dy);if(l<10)continue;let ang=Math.atan2(dy,dx);if(ang<0)ang+=Math.PI;if(ang>=Math.PI)ang-=Math.PI;const ux=Math.cos(ang),uy=Math.sin(ang);
       const t0=s0[0]*ux+s0[1]*uy,t1=s0[2]*ux+s0[3]*uy;L.push({s:s0,a:Math.round(ang*180/Math.PI)%180,c:-uy*s0[0]+ux*s0[1],t0:Math.min(t0,t1),t1:Math.max(t0,t1),l})}
     const bins=new Map();for(const q of L){for(const a of [q.a,(q.a+1)%180,(q.a+179)%180]){let b=bins.get(a);if(!b)bins.set(a,b=[]);if(a===q.a)b.push(q)}}
+    // a line with a parallel partner at the same distance on BOTH sides is a pipe centreline, not a wall
+    const side=(q,sgn)=>{let bd=1e9;for(const a of [q.a,(q.a+1)%180,(q.a+179)%180]){const b=bins.get(a);if(!b)continue;for(const r of b){if(r===q)continue;const d=(r.c-q.c)*sgn;if(d<1.2||d>30)continue;const ov=Math.min(q.t1,r.t1)-Math.max(q.t0,r.t0);if(ov<0.5*Math.min(q.l,r.l))continue;if(d<bd)bd=d}}return bd};
+    for(const q of L){const a=side(q,1),b=side(q,-1);if(a<1e9&&b<1e9&&Math.abs(a-b)<=0.15*Math.max(a,b)+0.3)q.mid=true}
+    const PR=[];
+    for(const q of L){if(q.mid)continue;let best=null,bd=1e9;for(const a of [q.a,(q.a+1)%180,(q.a+179)%180]){const b=bins.get(a);if(!b)continue;for(const r of b){if(r===q||r.mid)continue;const d=r.c-q.c;if(d<1.2||d>30)continue;const ov=Math.min(q.t1,r.t1)-Math.max(q.t0,r.t0);if(ov<0.6*Math.min(q.l,r.l))continue;if(d<bd){bd=d;best={r,ov}}}}
+      if(best)PR.push({q,r:best.r,w:bd,ov:best.ov})}
+    // a narrow "pipe" that shares a line with a much wider pipe is an extra line drawn alongside (sleeve, arrow strip, offset centreline) → drop it
+    const byQ=new Map(),byR=new Map();for(const p of PR){byQ.set(p.q,p);byR.set(p.r,p)}
+    for(const p of PR){const o1=byQ.get(p.r),o2=byR.get(p.q);if((o1&&o1.w>=1.6*p.w)||(o2&&o2.w>=1.6*p.w))p.dead=true}
     const W=new Map();
-    for(const q of L){let best=null,bd=1e9;for(const a of [q.a,(q.a+1)%180,(q.a+179)%180]){const b=bins.get(a);if(!b)continue;for(const r of b){if(r===q)continue;const d=r.c-q.c;if(d<1.2||d>30)continue;const ov=Math.min(q.t1,r.t1)-Math.max(q.t0,r.t0);if(ov<0.6*Math.min(q.l,r.l))continue;if(d<bd){bd=d;best={r,ov}}}}
-      if(!best)continue;const wk=Math.round(bd*5)/5;let w=W.get(wk);if(!w)W.set(wk,w={w:wk,len:0,segs:[],n:0});w.len+=best.ov;w.n++;w.segs.push(q.s,best.r.s)}
-    const cl=[...W.values()].sort((a,b)=>a.w-b.w);const merged=[];for(const w of cl){const last=merged[merged.length-1];if(last&&w.w<=last.w*1.08+0.2){const tot=last.len+w.len;last.w=(last.w*last.len+w.w*w.len)/tot;last.len=tot;last.n+=w.n;last.segs.push(...w.segs)}else merged.push({...w,segs:[...w.segs]})}
+    for(const p of PR){if(p.dead)continue;const q=p.q,r=p.r,bd=p.w;const wk=Math.round(bd*5)/5;let w=W.get(wk);if(!w)W.set(wk,w={w:wk,len:0,segs:[],n:0,pr:[]});w.len+=p.ov;w.n++;w.segs.push(q.s,r.s);
+      {const ta=Math.max(q.t0,r.t0),tb=Math.min(q.t1,r.t1),cm=(q.c+r.c)/2,an=q.a*Math.PI/180,ux=Math.cos(an),uy=Math.sin(an);w.pr.push([ta*ux-cm*uy,ta*uy+cm*ux,tb*ux-cm*uy,tb*uy+cm*ux,bd,p.ov,q.s,r.s])}}
+    const cl=[...W.values()].sort((a,b)=>a.w-b.w);const merged=[];for(const w of cl){const last=merged[merged.length-1];if(last&&w.w<=last.w*1.08+0.2){const tot=last.len+w.len;last.w=(last.w*last.len+w.w*w.len)/tot;last.len=tot;last.n+=w.n;last.segs.push(...w.segs);last.pr.push(...w.pr)}else merged.push({...w,segs:[...w.segs],pr:[...w.pr]})}
     const pairLen=merged.reduce((a,w)=>a+w.len,0),ratio=2*pairLen/(g.len||1);
     // real pipe colours: walls pair up for a good share of the colour (dimension/grid lines rarely do; hatch-like symbols pair too often)
     if(ratio<0.3||ratio>1.1)continue;
-    for(const w of merged)if(w.len>=40&&w.n>=10)pipes2.push({col:g.col,w:w.w,len:w.len,n:w.n,ratio,key:"pp|"+g.col+"|"+w.w.toFixed(1),segs:w.segs})}
+    for(const w of merged)if(w.len>=40&&w.n>=20)pipes2.push({col:g.col,w:w.w,len:w.len,n:w.n,ratio,key:"pp|"+g.col+"|"+w.w.toFixed(1),segs:w.segs,pr:w.pr})}
   for(const pp of pipes2)segStore[pp.key]=pp.segs;
-  return {groups:out,segs:segStore,tags,scaleN,w:vp.width,h:vp.height,mono,noText,trunc:nseg>=MAX,all:ALL,circles:CIR,prim:PRIM,pipes2};
+  // dashed / dash-dot runs whose dashes were exported as separate short strokes (circuit home-runs, hidden lines): chain dashes end-to-end
+  const dashed=[];
+  for(const g of G.values()){if(g.segs.length<8)continue;const S=g.segs.filter(q=>{const l=Math.hypot(q[2]-q[0],q[3]-q[1]);return l<=14});if(S.length<8)continue;
+    const cell=10,H=new Map();const E=[];S.forEach((q,i)=>{const l=Math.hypot(q[2]-q[0],q[3]-q[1])||1e-9,ux=(q[2]-q[0])/l,uy=(q[3]-q[1])/l;E.push([q[0],q[1],-ux,-uy,i],[q[2],q[3],ux,uy,i])});
+    E.forEach((e,k)=>{const key=Math.floor(e[0]/cell)+","+Math.floor(e[1]/cell);let a=H.get(key);if(!a)H.set(key,a=[]);a.push(k)});
+    const par=S.map((_,i)=>i),fd=i=>{while(par[i]!==i)i=par[i]=par[par[i]];return i};const gapSum=new Float64Array(S.length),gapN=new Int32Array(S.length);const used=new Uint8Array(E.length);
+    for(let k=0;k<E.length;k++){if(used[k])continue;const e=E[k];const ci=Math.floor(e[0]/cell),cj=Math.floor(e[1]/cell);let best=-1,bd=10;
+      for(let a=ci-1;a<=ci+1;a++)for(let b=cj-1;b<=cj+1;b++){const L=H.get(a+","+b);if(!L)continue;for(const m of L){if(used[m])continue;const f=E[m];if(f[4]===e[4])continue;const gx=f[0]-e[0],gy=f[1]-e[1],gd=Math.hypot(gx,gy);if(gd<0.02){if(e[2]*-f[2]+e[3]*-f[3]<0.5)continue;best=m;bd=gd;break}if(gd<0.8||gd>bd)continue;
+        if((gx*e[2]+gy*e[3])/gd<0.9)continue;if(-(gx*f[2]+gy*f[3])/gd<0.9)continue;if(e[2]*-f[2]+e[3]*-f[3]<0.8)continue;best=m;bd=gd}}
+      if(best>=0){used[k]=used[best]=1;const gp=bd<0.02?0:1;const a=fd(e[4]),b=fd(E[best][4]);if(a!==b){par[a]=b;gapSum[b]+=gapSum[a]+bd*gp;gapN[b]+=gapN[a]+gp}else{gapSum[a]+=bd*gp;gapN[a]+=gp}}}
+    const C=new Map();S.forEach((q,i)=>{const r=fd(i);let c=C.get(r);if(!c)C.set(r,c={segs:[],len:0,x0:1e9,y0:1e9,x1:-1e9,y1:-1e9});c.segs.push(q);c.len+=Math.hypot(q[2]-q[0],q[3]-q[1]);c.x0=Math.min(c.x0,q[0],q[2]);c.y0=Math.min(c.y0,q[1],q[3]);c.x1=Math.max(c.x1,q[0],q[2]);c.y1=Math.max(c.y1,q[1],q[3])});
+    let tot=0,n=0;const segs=[];for(const [r,c] of C){if(c.segs.length<6||gapN[r]<5)continue;if(Math.hypot(c.x1-c.x0,c.y1-c.y0)<50)continue;const span=c.len+gapSum[r],duty=c.len/span,mg=gapSum[r]/gapN[r];if(duty<0.25||duty>0.9||mg<2||mg>9)continue;tot+=span;n++;segs.push(...c.segs)}
+    if(tot>=30){const key="dd|"+g.key;segStore[key]=segs;const m=/^#(..)(..)(..)$/.exec(g.col),vv=m?[m[1],m[2],m[3]].map(h=>parseInt(h,16)):[0,0,0];dashed.push({key,col:g.col,lw:g.lw,len:tot,n,grey:Math.max(...vv)-Math.min(...vv)<40})}}
+  return {groups:out,segs:segStore,tags,scaleN,w:vp.width,h:vp.height,mono,noText,trunc:nseg>=MAX,all:ALL,circles:CIR,prim:PRIM,pipes2,dashed};
 }
 async function pdfAuto(name,onProg){
   const f=F[name];f.vec=f.vec||{};const out=[];const bad=[];const maxP=Math.min(f.pages,40);
   for(let pn=1;pn<=maxP;pn++){onProg&&onProg(`อ่านเส้นและข้อความใน PDF หน้า ${pn}/${maxP}…`);await new Promise(r=>setTimeout(r,0));
     let v;try{v=await pdfVectors(f.pdf,pn)}catch(e){continue}f.vec[pn]=v;
-    if(v.mono&&v.noText){bad.push(pn);continue}
+    if(v.mono&&v.noText&&!(v.dashed||[]).some(d=>d.grey)){bad.push(pn);continue}
+    for(const d of v.dashed||[]){const wire=d.grey&&v.mono;
+      out.push({id:`${name}|p${pn}|vec|${d.key}`,file:name,kind:"pdfauto",mtype:"len",dash2:true,label:wire?`แนวสายไฟ/ท่อร้อยสาย (เส้นประ ${(d.lw*0.3528).toFixed(2)} มม.)`:`เส้นประ สี ${d.col} ${(d.lw*0.3528).toFixed(2)} มม.`,layer:d.col,hint:wire?"สายไฟ ท่อร้อยสาย":"",qty:0,unit:"ม.",
+        note:wire?"แบบไฟฟ้า PDF: เส้นประ/เส้นประจุด = แนววงจร (home run) ขนาดสาย/ท่อดูจากตารางโหลดหรือป้ายในแบบ ควรตรวจ":"",refs:{page:pn,type:"vec",gk:d.key,pt:d.len},
+        src:`${name} · หน้า ${pn} · เส้นประต่อเป็นแนวเดียวกัน ${d.n} แนว · ความยาวตามแนวเส้น (รวมช่องว่างระหว่างขีด)`});
+      const wd=(P.auto?.wDef||"").trim(),wm=wire&&wd?/(\d+)\s*[-x×]\s*(\d+(?:\.\d+)?)\s*(?:\/\s*(\d+(?:\.\d+)?)\s*G)?/i.exec(wd):null;const wf=1+(+(P.auto?.wWaste)||0)/100;
+      if(wm){const nn=+wm[1];for(const [sz,k,g] of [[wm[2],nn,false],...(wm[3]?[[wm[3],1,true]]:[])])out.push({id:`${name}|p${pn}|vec|${d.key}|w${sz}${g?"G":""}`,file:name,kind:"pdfauto",mtype:"len",dash2:true,label:`${g?"สายดิน":"สายไฟ"} ${sz} ตร.มม. (แนวเส้นประ × ${k} เส้น · ขนาดตามที่ตั้งค่า)`,layer:"WIRE",hint:`THW ${sz} SQ.MM WIRE`,qty:0,unit:"ม.",
+        note:"PDF ไม่มีป้ายขนาดสาย ใช้ขนาดจากตั้งค่า “แนวที่ไม่มีป้ายสาย” ควรตรวจกับตารางโหลด",refs:{page:pn,type:"vec",gk:d.key,pt:d.len*k*wf},src:`${name} · หน้า ${pn} · ${g?"สายดิน":"สายไฟ"} ${sz} ตร.มม. = แนวเส้นประ × ${k} เส้น${wf>1?` × เผื่อ ${P.auto.wWaste}%`:""} (ขนาดจากตั้งค่า ${esc(wd)})`})}}
+    if(v.mono&&v.noText&&(v.dashed||[]).some(d=>d.grey))showNote(name,`หน้า ${pn}: PDF ขาวดำ ตัวอักษรเป็นเส้น — ถอดได้เฉพาะแนวสายไฟที่เป็นเส้นประ (ต้องตั้งสเกลก่อน) ขนาดสาย/ท่อและจำนวนสายดูจากตารางโหลด · อุปกรณ์ใช้ปุ่ม “นับสัญลักษณ์เหมือนกัน”`);
     let sc=P.calib[name+"#"+pn];if(!sc&&v.scaleN){sc=0.0254/72*v.scaleN;P.calib[name+"#"+pn]=sc;P.calib[name+"#"+pn+"#lbl"]=`1:${v.scaleN} (อ่านจากแบบ)`}
     for(const g of v.groups)out.push({id:`${name}|p${pn}|vec|${g.key}`,file:name,kind:"pdfauto",mtype:"len",label:g.label,layer:g.col,hint:g.hint,sizeHint:g.size,qty:sc?g.len*sc:0,unit:"ม.",
       refs:{page:pn,type:"vec",gk:g.key,pt:g.len},src:`${name} · หน้า ${pn} · ${g.desc} · ${g.n} เส้น${sc?"":" · ยังไม่ตั้งสเกล"}`});
     const OD=[["1/2",22],["3/4",26.7],["1",34],["1 1/4",42],["1 1/2",48],["2",60],["2 1/2",76],["3",89],["4",114],["5",140],["6",165],["8",216],["10",267],["12",318]];
-    for(const pp of v.pipes2||[]){const mm=sc?pp.w*sc*1000:0;let sz=null;if(mm){let bd=1e9;for(const [n,o] of OD){const d=Math.abs(mm-o)/o;if(d<bd){bd=d;sz=n}}if(bd>0.18)sz=null}
-      const ck=sz?IN_CODE[sz]:null;let code=null;if(ck)for(const pf of (["2","2 1/2","3","4","6"].includes(sz)?["SAN-DRN-","SAN-PVC85-"]:["SAN-PVC85-","SAN-PVC135-"]))if(has(pf+ck)){code=pf+ck;break}
-      out.push({id:`${name}|p${pn}|vec|${pp.key}`,file:name,kind:"pdfauto",mtype:"len",pipe2:true,label:`ท่อ (เส้นคู่) สี ${pp.col}${sz?` ø${sz}"`:mm?` กว้าง ${mm.toFixed(0)} มม.`:""}`,layer:pp.col,hint:`ท่อ PIPE${sz?` ${sz}"`:""}`,sizeHint:sz?{inch:sz}:null,
+    for(const t of out)if(t.dash2&&t.refs.page===pn&&!t.qty&&sc){t.qty=t.refs.pt*sc}
+    const labs=(P.pipeLab||{})[name+"#"+pn]||[];let parts=v.pipes2||[];
+    if(labs.length){const all=[];for(const pp of parts)for(const pr of pp.pr)all.push({pp,pr,sys:null});
+      const dseg=(x,y,s)=>{const dx=s[2]-s[0],dy=s[3]-s[1],L2=dx*dx+dy*dy||1;let t=((x-s[0])*dx+(y-s[1])*dy)/L2;t=Math.max(0,Math.min(1,t));return Math.hypot(x-s[0]-t*dx,y-s[1]-t*dy)};
+      for(const lb of labs)for(const [x,y] of lb.pts){let best=null,bd=90;for(const a of all){const d=dseg(x,y,a.pr);if(d<bd){bd=d;best=a}}if(best&&!best.sys)best.sys=lb.sys}
+      const ends=a=>[[a.pr[0],a.pr[1]],[a.pr[2],a.pr[3]]];
+      for(let it=0;it<60;it++){let ch=false;for(const a of all){if(a.sys)continue;const tol=Math.max(4,a.pr[4]*4);for(const b of all){if(!b.sys||b.pp!==a.pp)continue;if(ends(a).some(p=>ends(b).some(q=>Math.hypot(p[0]-q[0],p[1]-q[1])<=tol))){a.sys=b.sys;ch=true;break}}}if(!ch)break}
+      const mid=a=>[(a.pr[0]+a.pr[2])/2,(a.pr[1]+a.pr[3])/2];
+      for(const a of all){if(a.sys)continue;const m=mid(a);let best=null,bd=200;for(const b of all){if(!b.sys||b.pp!==a.pp||b.fill)continue;const q=mid(b);const d=Math.hypot(m[0]-q[0],m[1]-q[1]);if(d<bd){bd=d;best=b}}if(best){a.sys=best.sys;a.fill=true}}
+      for(const pp of new Set(all.map(a=>a.pp))){const ss=new Set(all.filter(a=>a.pp===pp&&a.sys).map(a=>a.sys));if(ss.size===1){const sy=[...ss][0];for(const a of all)if(a.pp===pp&&!a.sys){a.sys=sy;a.fill=true}}}
+      const by=new Map();for(const a of all){const k=a.pp.key+"|"+(a.sys||"?");let g=by.get(k);if(!g)by.set(k,g={...a.pp,key:k,sys:a.sys,len:0,n:0,segs:[]});g.len+=a.pr[5];g.n++;g.segs.push(a.pr[6],a.pr[7])}
+      parts=[...by.values()].filter(g=>g.len>=20);for(const g of parts)v.segs[g.key]=g.segs}
+    const SYSN={RL:"ท่อน้ำฝน (RL)",FD:"ท่อระบายน้ำพื้น (FD)",S:"ท่อโสโครก (S)",W:"ท่อน้ำทิ้ง (W)",V:"ท่ออากาศ (V)",KW:"ท่อน้ำทิ้งครัว (KW)",CW:"ท่อน้ำดี (CW)",HW:"ท่อน้ำร้อน (HW)"};
+    for(const pp of parts){const mm=sc?pp.w*sc*1000:0;let sz=null;if(mm){let bd=1e9;for(const [n,o] of OD){const d=Math.abs(mm-o)/o;if(d<bd){bd=d;sz=n}}if(bd>0.18)sz=null}
+      const ck=sz?IN_CODE[sz]:null;let code=null;const pfs=pp.sys==="HW"?["SAN-PPR-"]:pp.sys==="CW"?["SAN-PVC135-","SAN-PVC85-"]:(["2","2 1/2","3","4","6"].includes(sz)?["SAN-DRN-","SAN-PVC85-"]:["SAN-PVC85-","SAN-PVC135-"]);if(ck)for(const pf of pfs)if(has(pf+ck)){code=pf+ck;break}
+      const sn=pp.sys?(SYSN[pp.sys]||`ท่อ ${pp.sys}`):null;
+      out.push({id:`${name}|p${pn}|vec|${pp.key}`,file:name,kind:"pdfauto",mtype:"len",pipe2:true,label:`${sn||(labs.length?"ท่อ (ไม่พบป้ายระบบ) สี "+pp.col:"ท่อ (เส้นคู่) สี "+pp.col)}${sz?` ø${sz}"`:mm?` กว้าง ${mm.toFixed(0)} มม.`:""}`,layer:pp.col,hint:`ท่อ PIPE${sz?` ${sz}"`:""}`,sizeHint:sz?{inch:sz}:null,
         qty:sc?pp.len*sc:0,unit:"ม.",...(code?{code,conf:1}:{}),note:"ท่อที่วาดเป็นเส้นคู่ ขนาดจากระยะห่างผนังท่อในแบบ ระบบท่อ (S/W/RL/CW ฯลฯ) ดูจากสีและป้ายในแบบ ควรตรวจ",refs:{page:pn,type:"vec",gk:pp.key,pt:pp.len},
-        src:`${name} · หน้า ${pn} · ท่อวาดเป็นเส้นคู่ สี ${pp.col} · ${pp.n} ช่วง · ความยาวตามแนวท่อ${mm?` · ระยะผนังท่อ ${mm.toFixed(0)} มม.${sz?` ≈ ø${sz}"`:""}`:" · ยังไม่ตั้งสเกล (ขนาดท่อคิดหลังตั้งสเกล)"}`})}
+        src:`${name} · หน้า ${pn} · ท่อวาดเป็นเส้นคู่ สี ${pp.col}${pp.sys?` · ระบบ ${pp.sys} จากป้ายในแบบที่อยู่ใกล้และท่อที่ต่อกัน`:""} · ${pp.n} ช่วง · ความยาวตามแนวท่อ${mm?` · ระยะผนังท่อ ${mm.toFixed(0)} มม.${sz?` ≈ ø${sz}"`:""}`:" · ยังไม่ตั้งสเกล (ขนาดท่อคิดหลังตั้งสเกล)"}`})}
     for(const tg of v.tags)out.push({id:`${name}|p${pn}|tag|${tg.text}`,file:name,kind:"pdfauto",mtype:"count",label:`สัญลักษณ์ “${tg.text}”`,hint:tg.text,qty:tg.pts.length,unit:"จุด",
       refs:{page:pn,type:"text",pts:tg.pts},src:`${name} · หน้า ${pn} · พบข้อความ “${tg.text}” ${tg.pts.length} ตำแหน่ง`});
   }
@@ -1295,23 +1346,38 @@ async function ensureVec(name,pn){const f=F[name];f.vec=f.vec||{};if(!f.vec[pn]|
 function primGrid(v){if(v.pg)return v.pg;const P=v.prim,cell=4,g=new Map();P.forEach((p,i)=>{const k=Math.floor(p[0]/cell)+","+Math.floor(p[1]/cell);let a=g.get(k);if(!a)g.set(k,a=[]);a.push(i)});
   return v.pg={cell,g,near(x,y,r,fn){const i0=Math.floor((x-r)/cell),i1=Math.floor((x+r)/cell),j0=Math.floor((y-r)/cell),j1=Math.floor((y+r)/cell);for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){const a=g.get(i+","+j);if(a)for(const k of a)if(fn(k))return true}return false}}}
 const angD=(a,b)=>{let d=Math.abs(a-b)%180;return Math.min(d,180-d)};
-async function symPickBox(bx){
-  const f=F[cur.file];if(!f||f.kind!=="pdf"){toast("นับสัญลักษณ์เหมือนกันใช้กับไฟล์ PDF · ไฟล์ DWG/DXF โปรแกรมนับตาม Block ให้อยู่แล้ว");return}
-  progress("กำลังค้นหาสัญลักษณ์ที่เหมือนกัน…");await new Promise(r=>setTimeout(r,20));
-  let v;try{v=await ensureVec(cur.file,cur.page)}catch(e){progress(null);toast("อ่านเส้นใน PDF ไม่ได้");return}
+function symMatch(v,bx,noMirror){
   const [x0,y0,x1,y1]=[Math.min(bx[0],bx[2]),Math.min(bx[1],bx[3]),Math.max(bx[0],bx[2]),Math.max(bx[1],bx[3])];
   const P=v.prim;const T=[];for(let i=0;i<P.length;i++){const p=P[i];const h=p[4]/2;if(p[0]-h>=x0-0.3&&p[0]+h<=x1+0.3&&p[1]-h>=y0-0.3&&p[1]+h<=y1+0.3)T.push(p)}
-  if(T.length<2){progress(null);toast("ในกรอบมีเส้นน้อยเกินไป ลากกรอบให้คลุมสัญลักษณ์ทั้งตัว");return}
-  if(T.length>400){progress(null);toast("กรอบใหญ่เกินไป ลากกรอบให้คลุมเฉพาะสัญลักษณ์ 1 ตัว");return}
+  if(T.length<2)return {err:"ในกรอบมีเส้นน้อยเกินไป ลากกรอบให้คลุมทั้งตัว"};
+  if(T.length>400)return {err:"กรอบใหญ่เกินไป ลากกรอบให้คลุมเฉพาะตัวที่ต้องการ 1 ตัว"};
   const size=Math.max(x1-x0,y1-y0),tolP=Math.max(0.5,0.07*size);const G=primGrid(v);
   const anchor=T.reduce((a,b)=>b[2]>a[2]?b:a);const found=[];
-  for(const [rot,mir] of [[0,0],[90,0],[180,0],[270,0],[0,1],[90,1],[180,1],[270,1]]){const rad=rot*Math.PI/180,c=Math.cos(rad),s=Math.sin(rad);const ma=a=>mir?(180-a)%180:a;
+  for(const [rot,mir] of (noMirror?[[0,0],[90,0],[180,0],[270,0]]:[[0,0],[90,0],[180,0],[270,0],[0,1],[90,1],[180,1],[270,1]])){const rad=rot*Math.PI/180,c=Math.cos(rad),s=Math.sin(rad);const ma=a=>mir?(180-a)%180:a;
     const RT=T.map(p=>{let dx=p[0]-anchor[0],dy=p[1]-anchor[1];if(mir)dx=-dx;return [dx*c-dy*s,dx*s+dy*c,p[2],(ma(p[3])+rot)%180]});
     for(let i=0;i<P.length;i++){const q=P[i];if(Math.abs(q[2]-anchor[2])>Math.max(0.3,0.15*anchor[2])||angD(q[3],(ma(anchor[3])+rot)%180)>10)continue;
       let miss=0;const allow=Math.floor(RT.length*0.15);for(const t of RT){const tx=q[0]+t[0],ty=q[1]+t[1];if(!G.near(tx,ty,tolP,k=>{const r=P[k];return Math.abs(r[0]-tx)<=tolP&&Math.abs(r[1]-ty)<=tolP&&Math.abs(r[2]-t[2])<=Math.max(0.3,0.2*t[2])&&angD(r[3],t[3])<=12})&&++miss>allow)break}
       if(miss>allow)continue;      const ox=((x0+x1)/2-anchor[0])*(mir?-1:1),oy=(y0+y1)/2-anchor[1];const cc=[q[0]+ox*c-oy*s,q[1]+ox*s+oy*c];
       if(!found.some(f=>Math.hypot(f[0]-cc[0],f[1]-cc[1])<size*0.5))found.push(cc)}}
-  progress(null);symSave(found,`รูปแบบเดียวกับที่ครอบไว้ ${T.length} ชิ้นส่วน`);
+  return {found,n:T.length};
+}
+async function symPickBox(bx){
+  const f=F[cur.file];if(!f||f.kind!=="pdf"){toast("นับสัญลักษณ์เหมือนกันใช้กับไฟล์ PDF · ไฟล์ DWG/DXF โปรแกรมนับตาม Block ให้อยู่แล้ว");return}
+  progress("กำลังค้นหาสัญลักษณ์ที่เหมือนกัน…");await new Promise(r=>setTimeout(r,20));
+  let v;try{v=await ensureVec(cur.file,cur.page)}catch(e){progress(null);toast("อ่านเส้นใน PDF ไม่ได้");return}
+  const m=symMatch(v,bx,false);progress(null);if(m.err){toast(m.err);return}symSave(m.found,`รูปแบบเดียวกับที่ครอบไว้ ${m.n} ชิ้นส่วน`);
+}
+/* pipe system from labels drawn as lines (PDF "print to PDF"): box the letters RL / FD / S … once, every identical label on the page is found,
+   then each double-line pipe takes the system of the label nearest to it and passes it along the pipes it connects to */
+async function psysPickBox(bx){
+  const f=F[cur.file];if(!f||f.kind!=="pdf"){toast("ใช้กับไฟล์ PDF · ไฟล์ DWG/DXF โปรแกรมอ่านชื่อระบบจากข้อความได้เอง");return}
+  const sys=(($("#psysSel")?.value||"")==="อื่นๆ"?($("#psysOther")?.value||""):($("#psysSel")?.value||"")).trim().toUpperCase();if(!sys){toast("เลือกหรือพิมพ์ชื่อระบบท่อก่อน");return}
+  progress("กำลังหาป้ายท่อที่เหมือนกันทั้งแผ่น…");await new Promise(r=>setTimeout(r,20));
+  let v;try{v=await ensureVec(cur.file,cur.page)}catch(e){progress(null);toast("อ่านเส้นใน PDF ไม่ได้");return}
+  const m=symMatch(v,bx,true);progress(null);if(m.err){toast(m.err);return}
+  const k=cur.file+"#"+cur.page;P.pipeLab=P.pipeLab||{};const L=(P.pipeLab[k]||[]).filter(x=>x.sys!==sys);L.push({sys,pts:m.found});P.pipeLab[k]=L;save();
+  progress("ถอดท่อใหม่ตามระบบ…");await pdfAuto(cur.file);autoBuild([cur.file]);progress(null);renderTO();renderBOQ();draw();hud();
+  toast(`พบป้าย ${sys} ${m.found.length} ตำแหน่ง · แยกท่อตามระบบแล้ว (ดูรายการ “ท่อ ${sys} …”)`,6000);
 }
 function symSave(pts,how){
   const nm=($("#dName")?.value||"").trim()||`สัญลักษณ์ที่เลือก ${P.takeoffs.filter(t=>t.symPick).length+1}`;
@@ -1734,6 +1800,9 @@ function rulesData(){const A=P.auto||{},v=x=>`[[${x}]]`,n=(x,u)=>v(`${+x||0} ${u
     "อ่านเส้นเวกเตอร์ในหน้า PDF จัดกลุ่มตามสี ความหนา และเส้นประ แต่ละกลุ่มเป็นหนึ่งรายการความยาว",
     "ต้องตั้งมาตราส่วน (วัดระยะที่รู้ค่าในแบบ 1 ครั้ง) ก่อนความยาวจะถูกต้อง",
     "รายการจาก PDF ขึ้นเป็น “ควรตรวจ” เสมอ เพราะ PDF ไม่มีชื่อ Layer / Block ให้ยืนยัน",
+    "ท่อที่วาดเป็นเส้นคู่ (ผนังท่อ 2 เส้น): วัดความยาวตามแนวท่อครั้งเดียว ขนาดท่อจากระยะห่างผนังเทียบ OD ท่อมาตรฐาน (ต้องตั้งสเกลก่อน) ตัดเส้นศูนย์กลางและเส้นที่วาดคู่ขนานติดท่อออก",
+    "ระบบท่อเมื่อป้ายเป็นเส้น (PDF พิมพ์จาก Print to PDF): ใช้เครื่องมือ “ระบบท่อจากป้าย” ลากกรอบตัวอักษร RL / FD / CW … ในป้าย 1 ป้าย โปรแกรมหาป้ายเดียวกันทั้งแผ่น แล้วให้ท่อที่ใกล้ป้ายและท่อที่ต่อกันเป็นระบบนั้น",
+    "แบบไฟฟ้า PDF ขาวดำ: เส้นประ/เส้นประจุดที่ต่อเนื่องกัน = แนววงจร (ต้องตั้งสเกลก่อน) สายไฟคิดจากขนาดในตั้งค่า “แนวที่ไม่มีป้ายสาย”",
     "PDF ที่เป็นภาพสแกน ถอดอัตโนมัติไม่ได้ ใช้เครื่องมือวัดและนับด้วยมือ"]],
   ["8. ราคาและ BOQ",[
     "จับคู่แต่ละรายการกับบัญชีราคากลางตามชนิดและขนาด (รหัสในแท็บ ราคากลาง) ค่าวัสดุและค่าแรงต่อหน่วยตามบัญชี",
@@ -1758,7 +1827,7 @@ $("#btnRuleX").onclick=()=>{if(!window.XLSX){toast("ตัวสร้าง Exc
 $("#btnRuleSet").onclick=()=>{showTab("draw");$("#autoSet").open=true;$("#autoSet").scrollIntoView({block:"start",behavior:"smooth"})};
 
 /* ======== BOOT ======== */
-window.__qto={get catalog(){return catalog},pdfAuto:(n)=>pdfAuto(n),F,matchTakeoff:t=>matchTakeoff(t),cadAnalyze:(...a)=>cadAnalyze(...a),symPickBox:b=>symPickBox(b),get P(){return P}};
+window.__qto={get catalog(){return catalog},pdfAuto:(n)=>pdfAuto(n),pdfVec:(n,p)=>pdfVectors(F[n].pdf,p),F,matchTakeoff:t=>matchTakeoff(t),cadAnalyze:(...a)=>cadAnalyze(...a),symPickBox:b=>symPickBox(b),psysPickBox:b=>psysPickBox(b),setTool:t=>setTool(t),get P(){return P}};
 P=load();const first=!P;if(!P)P=blank();
 P.auto=Object.assign({wallH:3,onOpen:true,unmatched:true,dropLen:0.4,mepOnly:true,hideUnk:false,sysFilter:""},P.auto||{});
 $("#mepOnly").checked=mepOn();
