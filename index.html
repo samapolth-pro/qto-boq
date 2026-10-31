@@ -1,0 +1,1747 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="icon.png">
+<title>ถอดแบบ BOQ</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<script src="lib/pdf.js"></script>
+<script src="lib/pdf.worker.js"></script>
+<script src="lib/xlsx.full.min.js"></script>
+<script>window.QTO_OFFLINE=true;window.QTO_PRICE_URL=/^https?:/.test(location.protocol)?"prices.json":"https://samapolth-pro.github.io/qto-boq/prices.json"</script>
+<script src="prices.js"></script>
+<style>
+/* Layout: drafting-table split — sheet viewer on the right, takeoff register on the left; BOQ and price book as full-width ledgers. */
+:root{
+  --paper:#f3f4f1; --sheet:#ffffff; --ink:#1d2523; --ink-2:#56605c; --rule:#d7dbd6; --rule-2:#e7eae5;
+  --teal:#0f6b62; --teal-ink:#ffffff; --teal-soft:#dcece8;
+  --mark:#e8641b; --mark-soft:#fde7d9;
+  --ok:#2f7d32; --warn:#b26a00; --bad:#b3261e;
+  --canvas:#fbfbf8; --grid:#eceee9;
+  --f-display:"Bai Jamjuree","IBM Plex Sans Thai",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans Thai",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-num:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#141917; --sheet:#1b2220; --ink:#e4e9e6; --ink-2:#9aa6a1; --rule:#2e3835; --rule-2:#252e2b;
+  --teal:#4fb3a6; --teal-ink:#0b1513; --teal-soft:#1f3a36; --mark:#ff8a4c; --mark-soft:#3d2618;
+  --ok:#7cc47f; --warn:#e0a640; --bad:#f08b83; --canvas:#111614; --grid:#1d2522; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#141917; --sheet:#1b2220; --ink:#e4e9e6; --ink-2:#9aa6a1; --rule:#2e3835; --rule-2:#252e2b;
+  --teal:#4fb3a6; --teal-ink:#0b1513; --teal-soft:#1f3a36; --mark:#ff8a4c; --mark-soft:#3d2618;
+  --ok:#7cc47f; --warn:#e0a640; --bad:#f08b83; --canvas:#111614; --grid:#1d2522; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.5}
+.wrap{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:12px 40px;max-width:1500px;margin:0 auto}
+header.top{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;padding-block:6px 12px;border-bottom:1px solid var(--rule)}
+.brand{font-family:var(--f-display);font-weight:700;font-size:20px;letter-spacing:.01em;display:flex;align-items:baseline;gap:8px}
+.brand small{font-family:var(--f-num);font-weight:400;font-size:11px;color:var(--ink-2);letter-spacing:.06em}
+#projName{font:inherit;font-size:14px;border:1px solid transparent;background:transparent;color:var(--ink);padding:4px 6px;border-radius:4px;min-width:0;width:220px}
+#projName:hover,#projName:focus{border-color:var(--rule);background:var(--sheet)}
+nav.tabs{display:flex;gap:2px;margin-left:auto;background:var(--rule-2);padding:3px;border-radius:7px}
+nav.tabs button{border:0;background:transparent;color:var(--ink-2);font:600 13px var(--f-body);padding:6px 12px;border-radius:5px;cursor:pointer}
+nav.tabs button[aria-selected="true"]{background:var(--sheet);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+button,select,input{font:inherit}
+.btn{border:1px solid var(--rule);background:var(--sheet);color:var(--ink);padding:6px 11px;border-radius:5px;cursor:pointer;font-size:13px;white-space:nowrap}
+.btn:hover{border-color:var(--ink-2)}
+.btn.primary{background:var(--teal);color:var(--teal-ink);border-color:var(--teal)}
+.btn.mark{background:var(--mark);color:#fff;border-color:var(--mark)}
+.btn.sm{padding:3px 8px;font-size:12px}
+.btn[aria-pressed="true"]{background:var(--teal-soft);border-color:var(--teal);color:var(--ink)}
+.btn:focus-visible,input:focus-visible,select:focus-visible,nav.tabs button:focus-visible{outline:2px solid var(--mark);outline-offset:1px}
+.label{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);font-weight:600}
+.num{font-family:var(--f-num);font-variant-numeric:tabular-nums}
+.muted{color:var(--ink-2)}
+.panel{background:var(--sheet);border:1px solid var(--rule);border-radius:6px}
+section[hidden]{display:none}
+/* drawing tab */
+.desk{display:grid;grid-template-columns:minmax(0,360px) minmax(0,1fr);gap:12px;margin-top:12px;align-items:start}
+.side{display:flex;flex-direction:column;gap:12px;min-width:0}
+.side .panel{padding:12px}
+.ph{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.ph h2{font-family:var(--f-display);font-size:15px;margin:0;font-weight:600}
+.drop{display:block;border:1.5px dashed var(--rule);border-radius:6px;padding:12px;text-align:center;cursor:pointer;color:var(--ink-2);font-size:13px}
+.drop.over{border-color:var(--teal);background:var(--teal-soft)}
+.drop b{color:var(--ink)}
+.fmt{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;justify-content:center}
+.fmt span{font-family:var(--f-num);font-size:10.5px;padding:1px 6px;border-radius:3px;border:1px solid var(--rule)}
+.fmt span.y{border-color:var(--teal);color:var(--teal)}
+.files{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}
+.files li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:5px;cursor:pointer;min-width:0}
+.files li[aria-current="true"]{background:var(--teal-soft)}
+.files li .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kind{font-family:var(--f-num);font-size:10px;padding:1px 5px;border-radius:3px;background:var(--rule-2);color:var(--ink-2);text-transform:uppercase}
+.note{font-size:12.5px;border-left:3px solid var(--warn);background:var(--rule-2);padding:8px 10px;border-radius:0 5px 5px 0;margin-top:8px}
+.note.info{border-left-color:var(--teal)}
+.tolist{list-style:none;margin:0;padding:0;max-height:420px;overflow:auto;display:flex;flex-direction:column}
+.tolist li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:2px 8px;padding:7px 4px;border-top:1px solid var(--rule-2);cursor:pointer;align-items:center}
+.tolist li:first-child{border-top:0}
+.tolist li[aria-current="true"]{background:var(--mark-soft)}
+.tolist .t{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tolist .src{grid-column:2/4;font-size:11.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tolist .q{text-align:right;font-size:13px}
+.mt{font-family:var(--f-num);font-size:10px;width:30px;text-align:center;padding:2px 0;border-radius:3px;color:#fff}
+.mt.len{background:#3b6ea8}.mt.area{background:#7a5aa6}.mt.count{background:#2f7d32}.mt.qty,.mt.vol{background:#8a6d1d}
+.filter{display:flex;gap:6px;margin-bottom:6px}
+.filter input{flex:1;min-width:0;border:1px solid var(--rule);background:var(--sheet);color:var(--ink);padding:5px 8px;border-radius:5px}
+.viewer{display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.vbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px;border-bottom:1px solid var(--rule)}
+.vbar .sep{width:1px;height:22px;background:var(--rule);margin:0 2px}
+.vbar select,.vbar input{border:1px solid var(--rule);background:var(--sheet);color:var(--ink);padding:4px 6px;border-radius:5px;font-size:12.5px}
+.stage{position:relative;height:min(68vh,720px);min-height:380px;background:var(--canvas);touch-action:none;overflow:hidden}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.hud{position:absolute;left:10px;bottom:10px;display:flex;gap:8px;flex-wrap:wrap;pointer-events:none}
+.hud span{background:var(--sheet);border:1px solid var(--rule);border-radius:4px;padding:2px 8px;font-size:12px;pointer-events:auto}
+.hud .live{border-color:var(--mark);color:var(--mark);font-weight:600}
+.tview{position:absolute;inset:0;overflow:auto;background:var(--sheet)}
+.tview table{border-collapse:collapse;font-size:12px;min-width:100%}
+.tview th,.tview td{border-bottom:1px solid var(--rule-2);padding:4px 8px;text-align:left;white-space:nowrap}
+.tview th{position:sticky;top:0;background:var(--rule-2)}
+.tview tr.hl td{background:var(--mark-soft)}
+.empty{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--ink-2);padding:20px}
+.tobar{display:flex;flex-wrap:wrap;gap:6px;padding:8px;border-top:1px solid var(--rule);align-items:center;font-size:12.5px}
+.tobar b{font-weight:600}
+/* BOQ */
+.boqhead{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:end;margin-top:14px}
+.boqhead h1{font-family:var(--f-display);font-size:22px;margin:0;font-weight:700;text-wrap:balance}
+.boqhead .act{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+.banner{margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 12px;border-radius:6px;background:var(--mark-soft);border:1px solid var(--mark);font-size:13px}
+.tablebox{overflow-x:auto;margin-top:10px;background:var(--sheet);border:1px solid var(--rule);border-radius:6px}
+table.boq{border-collapse:collapse;width:100%;min-width:1180px;font-size:12.5px}
+table.boq th{background:var(--rule-2);font-weight:600;font-size:11.5px;padding:6px;border:1px solid var(--rule);text-align:center;vertical-align:bottom}
+table.boq td{border:1px solid var(--rule-2);padding:3px 5px;vertical-align:top}
+table.boq td.r{text-align:right}
+table.boq tr.cat td{background:var(--teal-soft);font-family:var(--f-display);font-weight:600;font-size:13px;padding:6px 8px}
+table.boq tr.sub td{background:var(--rule-2);font-weight:600}
+table.boq input,table.boq select{width:100%;border:1px solid transparent;background:transparent;color:var(--ink);padding:3px 4px;border-radius:3px;font-size:12.5px}
+table.boq input:hover,table.boq input:focus,table.boq select:hover{border-color:var(--rule);background:var(--sheet)}
+table.boq input.n{text-align:right;font-family:var(--f-num)}
+table.boq input.need{border-color:var(--warn);background:var(--mark-soft)}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:1px 6px;border-radius:10px;border:1px solid var(--rule);background:var(--sheet);color:var(--ink);cursor:pointer;margin:1px 2px 1px 0;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip.src{border-color:var(--mark);color:var(--mark)}
+.chip.src::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--mark);flex:none}
+.psrc{font-size:10.5px;color:var(--ink-2);line-height:1.3}
+.psrc .stale{color:var(--warn);font-weight:600}
+.psrc .newer{color:var(--bad);font-weight:600}
+.totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:12px}
+.tot{background:var(--sheet);border:1px solid var(--rule);border-radius:6px;padding:10px 12px}
+.tot .v{font-family:var(--f-num);font-size:18px;font-weight:500;font-variant-numeric:tabular-nums}
+.tot.grand{border-color:var(--teal);background:var(--teal-soft)}
+.tot.grand .v{font-size:22px}
+.tot input{width:90px;border:1px solid var(--rule);background:var(--sheet);color:var(--ink);padding:3px 6px;border-radius:4px;font-family:var(--f-num)}
+/* price book */
+.pbhead{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px}
+.pbhead h1{font-family:var(--f-display);font-size:22px;margin:0}
+.pbmeta{font-size:12.5px;color:var(--ink-2);margin-top:6px;max-width:80ch}
+.rules{max-width:92ch;margin:14px 0 40px}
+.rules .rsec{background:var(--sheet);border:1px solid var(--rule);border-radius:6px;padding:12px 16px;margin-top:10px}
+.rules h2{font-size:15px;margin:0 0 6px}
+.rules ol{margin:0;padding-left:22px}.rules li{margin:5px 0;line-height:1.55;font-size:13.5px}
+.rules .fx{display:block;font-family:var(--f-mono,monospace);font-size:12.5px;background:var(--paper);border:1px solid var(--rule-2);border-radius:4px;padding:6px 9px;margin:6px 0}
+.rules b.v{color:var(--mark)}
+table.pb{border-collapse:collapse;width:100%;min-width:860px;font-size:12.5px}
+table.pb th{background:var(--rule-2);text-align:left;padding:6px 8px;font-size:11.5px;border-bottom:1px solid var(--rule)}
+table.pb td{padding:5px 8px;border-bottom:1px solid var(--rule-2);vertical-align:top}
+table.pb td.r{text-align:right}
+.addform{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px;padding:10px;border-top:1px solid var(--rule)}
+.addform input,.addform select{border:1px solid var(--rule);background:var(--sheet);color:var(--ink);padding:5px 7px;border-radius:4px;min-width:0}
+/* sheet modal */
+.scrim{position:fixed;inset:0;background:rgba(10,15,14,.45);display:flex;align-items:flex-end;justify-content:center;z-index:50;padding:0 0 env(safe-area-inset-bottom,0px)}
+.sheetm{background:var(--sheet);color:var(--ink);width:min(720px,100%);max-height:86vh;border-radius:10px 10px 0 0;display:flex;flex-direction:column;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:14px 16px}
+@media (min-width:760px){.scrim{align-items:center}.sheetm{border-radius:10px}}
+.sheetm h3{font-family:var(--f-display);margin:0 0 4px;font-size:17px}
+.sheetm .list{overflow:auto;border:1px solid var(--rule);border-radius:6px;margin-top:8px;flex:1;min-height:120px}
+.sheetm .list button{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;width:100%;text-align:left;border:0;border-bottom:1px solid var(--rule-2);background:transparent;color:var(--ink);padding:7px 10px;cursor:pointer}
+.sheetm .list button:hover,.sheetm .list button:focus-visible{background:var(--teal-soft)}
+.sheetm .list small{grid-column:1/3;color:var(--ink-2);font-size:11px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.btn.big{font-weight:600;padding:7px 14px}
+.autoset{margin-top:10px;font-size:12.5px;border-top:1px solid var(--rule-2);padding-top:8px}
+.autoset summary{cursor:pointer;color:var(--ink-2);font-weight:600}
+.autoset label{display:flex;gap:6px;align-items:center;margin-top:6px}
+.autoset .asHd{display:block;margin-top:10px;font-size:12px;color:var(--ink-2)}
+.autoset input[type=text],.autoset input.num{border:1px solid var(--rule);background:var(--sheet);color:var(--ink);padding:2px 6px;border-radius:4px;width:60px}
+.autoset .btn{margin-top:8px}
+.banner.auto{background:var(--teal-soft);border-color:var(--teal)}
+.cf{font-size:11px;padding:1px 7px;border-radius:10px;border:1px solid currentColor;white-space:nowrap}
+.cf3{color:var(--ok)}.cf2{color:var(--warn)}.cf1{color:var(--bad)}.cf0{color:var(--ink-2)}
+.mepTog{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;padding:5px 10px;border:1px solid var(--teal);border-radius:6px;background:var(--teal-soft);color:var(--ink);cursor:pointer;white-space:nowrap}
+.mepTog input{margin:0}
+.syschips{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
+.syschips button{border:1px solid var(--rule);background:var(--sheet);color:var(--ink-2);font-size:11.5px;padding:2px 9px;border-radius:12px;cursor:pointer}
+.syschips button[aria-pressed="true"]{border-color:var(--teal);background:var(--teal-soft);color:var(--ink);font-weight:600}
+.mepnote{font-size:11.5px;color:var(--ink-2);margin-bottom:6px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center}
+.mepnote label{display:inline-flex;gap:4px;align-items:center;cursor:pointer}
+.tolist li.unk .t{color:var(--ink-2)}
+.sysb{font-size:10px;padding:0 5px;border-radius:3px;border:1px solid var(--rule);color:var(--ink-2);margin-right:5px;font-weight:600}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--paper);padding:8px 14px;border-radius:6px;font-size:13px;z-index:60;max-width:90vw}
+@media (max-width:860px){
+  .desk{grid-template-columns:minmax(0,1fr)}
+  .viewer{order:-1}
+  .stage{height:58vh;min-height:320px}
+  nav.tabs{margin-left:0;width:100%}
+  nav.tabs button{flex:1}
+  #projName{width:100%}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+<style>:root{color-scheme:light}body{margin:0;font-size:14px}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+
+
+<div class="wrap">
+<header class="top">
+  <div class="brand">ถอดแบบ BOQ <small>QTO · ว480 · สนค.</small></div>
+  <input id="projName" aria-label="ชื่อโครงการ" value="โครงการใหม่">
+  <button class="btn mark big" id="btnAuto" title="เลือกไฟล์แบบ แล้วโปรแกรมถอดปริมาณ จับคู่ราคา และทำ BOQ ให้ทันที">ถอดปริมาณอัตโนมัติ</button>
+  <label class="mepTog" title="ถอดปริมาณเฉพาะงานระบบ: ไฟฟ้า สุขาภิบาล ดับเพลิง ปรับอากาศ (ไม่ถอดงานโครงสร้างและสถาปัตยกรรม)"><input type="checkbox" id="mepOnly" checked> เฉพาะงานระบบ</label>
+  <input type="file" id="autoIn" multiple hidden accept=".dxf,.pdf,.ifc,.csv,.xlsx,.xls,.dwg,.rvt,.skp,.png,.jpg,.jpeg">
+  <nav class="tabs" role="tablist">
+    <button role="tab" id="tab-draw" aria-selected="true" data-tab="draw">แบบ &amp; ถอดปริมาณ</button>
+    <button role="tab" id="tab-boq" aria-selected="false" data-tab="boq">BOQ</button>
+    <button role="tab" id="tab-price" aria-selected="false" data-tab="price">ราคากลาง</button>
+    <button role="tab" id="tab-rule" aria-selected="false" data-tab="rule">หลักการถอด</button>
+  </nav>
+</header>
+
+<!-- DRAWING -->
+<section id="sec-draw">
+ <div class="desk">
+  <div class="side">
+   <div class="panel">
+    <div class="ph"><h2>ไฟล์แบบ</h2><button class="btn sm" id="btnSample">โหลดแบบตัวอย่าง</button></div>
+    <label class="drop" id="drop" for="fileIn">
+      <b>เลือกไฟล์</b> หรือลากมาวางที่นี่
+      <div class="fmt">
+        <span class="y">DXF</span><span class="y">PDF</span><span class="y">IFC</span><span class="y">JPG/PNG</span><span class="y">CSV/XLSX</span>
+        <span class="y">DWG</span><span>RVT</span><span>SKP</span>
+      </div>
+    </label>
+    <input type="file" id="fileIn" multiple hidden accept=".dxf,.pdf,.ifc,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.dwg,.rvt,.rfa,.skp,.nwd,.nwc">
+    <ul class="files" id="fileList"></ul>
+    <div id="fileNote"></div>
+    <details class="autoset" id="autoSet"><summary>ตั้งค่าถอดอัตโนมัติ</summary>
+      <label><input type="checkbox" id="as-open"> ถอดอัตโนมัติทุกครั้งที่เปิดไฟล์</label>
+      <label><input type="checkbox" id="as-un"> ใส่รายการที่หาราคาไม่เจอลง BOQ ด้วย</label>
+      <label>ความสูงผนัง <input id="as-h" class="num" inputmode="decimal" size="5"> ม.</label>
+      <label>ค่าเผื่อตัดท่อในรายงาน <input id="as-w" class="num" inputmode="decimal" size="5"> %</label>
+      <label>ท่อดร็อปต่อหัวสปริงเกลอร์ <input id="as-drop" class="num" inputmode="decimal" size="5"> ม./หัว (0 = ไม่คิด)</label>
+      <b class="asHd">สายไฟ (คิดจากป้ายขนาดสายในแบบ)</b>
+      <label>สายแนวดิ่งต่อจุด <input id="as-wdrop" class="num" inputmode="decimal" size="5"> ม./จุด (ขึ้น-ลงจากฝ้าถึงโคม/เต้ารับ/สวิตช์ ต่อสายแต่ละเส้น)</label>
+      <label>เผื่อปลายสายต่อแนว <input id="as-wterm" class="num" inputmode="decimal" size="5"> ม./แนว (ต่อในตู้/กล่องต่อสาย)</label>
+      <label>ค่าเผื่อสายไฟ <input id="as-wwaste" class="num" inputmode="decimal" size="5"> %</label>
+      <label>แนวที่ไม่มีป้ายสาย ใช้ <input id="as-wdef" size="16" placeholder="เช่น 2-2.5/2.5G SQ.MM"> (เว้นว่าง = ไม่คิดสาย)</label>
+      <button class="btn sm" id="btnReAuto">ถอดใหม่จากไฟล์ที่เปิดอยู่</button>
+    </details>
+   </div>
+   <div class="panel">
+    <div class="ph"><h2>รายการถอดปริมาณ</h2><span class="muted num" id="toCount"></span></div>
+    <div class="filter"><input id="toFilter" placeholder="ค้นหา layer, block, ชื่อ…" aria-label="ค้นหารายการถอดปริมาณ"></div>
+    <div class="syschips" id="sysChips"></div>
+    <div class="mepnote" id="mepNote"></div>
+    <ul class="tolist" id="toList"></ul>
+    <div class="note info" style="margin-top:10px">แตะรายการเพื่อดูตำแหน่งในแบบ (ไฮไลต์สีส้ม) แล้วกด <b>เพิ่มลง BOQ</b> เพื่อจับคู่กับราคากลาง</div>
+   </div>
+  </div>
+
+  <div class="panel viewer">
+   <div class="vbar">
+     <button class="btn sm" data-tool="pan" aria-pressed="true">เลื่อน</button>
+     <button class="btn sm" data-tool="len" aria-pressed="false">วัดความยาว</button>
+     <button class="btn sm" data-tool="area" aria-pressed="false">วัดพื้นที่</button>
+     <button class="btn sm" data-tool="count" aria-pressed="false">นับจุด</button>
+     <button class="btn sm" data-tool="sym" aria-pressed="false" title="ลากกรอบครอบสัญลักษณ์ 1 ตัวในแบบ PDF โปรแกรมจะนับตัวที่เหมือนกันทั้งแผ่น">นับสัญลักษณ์เหมือนกัน</button>
+     <button class="btn sm" data-tool="cal" aria-pressed="false">ตั้งสเกล</button>
+     <span class="sep"></span>
+     <button class="btn sm" id="btnFit">พอดีจอ</button>
+     <span id="pageCtl" hidden><button class="btn sm" id="pgPrev" aria-label="หน้าก่อน">‹</button> <span class="num" id="pgLbl"></span> <button class="btn sm" id="pgNext" aria-label="หน้าถัดไป">›</button></span>
+     <span id="scaleCtl" hidden>
+       <select id="scaleSel" aria-label="มาตราส่วนแบบ">
+         <option value="">มาตราส่วน…</option>
+         <option>1:20</option><option>1:25</option><option>1:50</option><option>1:75</option><option>1:100</option><option>1:150</option><option>1:200</option><option>1:250</option><option>1:500</option><option>1:1000</option>
+       </select>
+     </span>
+     <span id="unitCtl" hidden>
+       <select id="unitSel" aria-label="หน่วยในไฟล์ CAD">
+         <option value="0.001">หน่วยแบบ: มม.</option><option value="0.01">ซม.</option><option value="1">เมตร</option><option value="0.0254">นิ้ว</option><option value="0.3048">ฟุต</option>
+       </select>
+     </span>
+     <span id="textCtl" hidden>
+       <input id="textQ" placeholder="นับข้อความ เช่น D1" size="12" aria-label="ข้อความที่ต้องการนับ">
+       <button class="btn sm" id="btnTextCount">นับ</button>
+     </span>
+   </div>
+   <div class="stage" id="stage">
+     <canvas id="cv"></canvas>
+     <div class="tview" id="tview" hidden></div>
+     <div class="empty" id="empty">ยังไม่ได้เปิดไฟล์ · เลือกไฟล์แบบทางซ้าย หรือกด “โหลดแบบตัวอย่าง”</div>
+     <div class="hud" id="hud"></div>
+   </div>
+   <div class="tobar" id="tobar"></div>
+  </div>
+ </div>
+</section>
+
+<!-- BOQ -->
+<section id="sec-boq" hidden>
+  <div class="boqhead">
+    <div><div class="label">แบบแสดงรายการปริมาณงานและราคา</div><h1 id="boqTitle">BOQ</h1></div>
+    <div class="act">
+      <button class="btn" id="btnAddRow">+ เพิ่มรายการเอง</button>
+      <button class="btn" id="btnQto">รายงานถอดปริมาณ (Excel)</button>
+      <button class="btn" id="btnXlsx">BOQ (Excel)</button>
+      <button class="btn" id="btnCopy">คัดลอกไปวาง Excel</button>
+      <button class="btn" id="btnSaveProj">บันทึกโครงการ</button>
+      <button class="btn" id="btnOpenProj">เปิดโครงการ</button>
+      <input type="file" id="projIn" accept=".json,.qto" hidden>
+      <button class="btn primary" id="btnCsv" hidden>ดาวน์โหลด CSV</button>
+    </div>
+  </div>
+  <div id="autoBanner"></div>
+  <div id="newerBanner"></div>
+  <div class="tablebox">
+   <table class="boq" id="boqT">
+    <thead>
+     <tr><th rowspan="2" style="width:38px">ลำดับ</th><th rowspan="2" style="min-width:230px">รายการ</th><th rowspan="2" style="width:150px">ที่มาปริมาณ</th><th rowspan="2" style="width:62px">ตัวคูณ</th><th rowspan="2" style="width:56px">เผื่อ %</th><th rowspan="2" style="width:88px">จำนวน</th><th rowspan="2" style="width:62px">หน่วย</th><th colspan="2">ค่าวัสดุ (บาท)</th><th colspan="2">ค่าแรงงาน (บาท)</th><th rowspan="2" style="width:104px">รวมค่าวัสดุ<br>และค่าแรง</th><th rowspan="2" style="width:150px">ที่มาราคา</th><th rowspan="2" style="width:30px"></th></tr>
+     <tr><th style="width:86px">ต่อหน่วย</th><th style="width:96px">จำนวนเงิน</th><th style="width:80px">ต่อหน่วย</th><th style="width:96px">จำนวนเงิน</th></tr>
+    </thead>
+    <tbody id="boqB"></tbody>
+   </table>
+  </div>
+  <div class="totals">
+    <div class="tot"><div class="label">รวมค่าวัสดุ</div><div class="v" id="tMat">0.00</div></div>
+    <div class="tot"><div class="label">รวมค่าแรงงาน</div><div class="v" id="tLab">0.00</div></div>
+    <div class="tot"><div class="label">ค่างานต้นทุน</div><div class="v" id="tCost">0.00</div></div>
+    <div class="tot"><div class="label">Factor F</div><div class="row"><input id="factorF" class="num" inputmode="decimal" value="1.0000" aria-label="Factor F"><label class="muted" style="font-size:12px"><input type="checkbox" id="vatChk"> บวก VAT 7%</label></div><div class="muted" style="font-size:11.5px">ใส่ตามตาราง Factor F กรมบัญชีกลาง (มักรวม VAT แล้ว)</div></div>
+    <div class="tot grand"><div class="label">ราคารวมทั้งสิ้น</div><div class="v" id="tGrand">0.00</div><div class="muted" style="font-size:12px" id="tWords"></div></div>
+  </div>
+</section>
+
+<!-- PRICE BOOK -->
+<section id="sec-rule" hidden>
+  <div class="pbhead">
+    <div><div class="label">วิธีที่โปรแกรมใช้คิดปริมาณ และค่าที่ตั้งไว้ตอนนี้</div><h1>หลักการถอดปริมาณ</h1></div>
+    <button class="btn" id="btnRuleX" style="margin-left:auto">ส่งออก Excel</button>
+    <button class="btn" id="btnRuleSet">แก้ค่าที่ตั้งไว้</button>
+  </div>
+  <div class="pbmeta">ค่าที่เป็นตัวเลขสีส้มดึงจากการตั้งค่าปัจจุบัน หลักการนี้แนบไปกับไฟล์ BOQ และรายงานถอดปริมาณที่ส่งออกด้วย (ชีต “หลักการถอดปริมาณ”)</div>
+  <div class="rules" id="ruleBody"></div>
+</section>
+
+<section id="sec-price" hidden>
+  <div class="pbhead">
+    <div><div class="label">บัญชีราคาวัสดุและค่าแรงงาน</div><h1>ราคากลางอ้างอิง</h1></div>
+    <button class="btn" id="btnExportPB" style="margin-left:auto">ส่งออกบัญชีราคา</button>
+    <button class="btn primary" id="btnImportPB" hidden>นำเข้าบัญชีราคา</button>
+    <button class="btn" id="btnSyncPB" hidden title="ดึงบัญชีราคาล่าสุดจากลิงก์ออนไลน์ (ทำอัตโนมัติทุกครั้งที่เปิดโปรแกรม)">แหล่งราคาออนไลน์</button>
+    <input type="file" id="pbIn" accept=".json" hidden>
+    <input id="pbQ" placeholder="ค้นหารายการ…" style="border:1px solid var(--rule);background:var(--sheet);color:var(--ink);padding:6px 9px;border-radius:5px;min-width:0" aria-label="ค้นหาราคา">
+  </div>
+  <div class="pbmeta" id="pbMeta">กำลังเชื่อมต่อบัญชีราคา…</div>
+  <div class="tablebox">
+    <table class="pb"><thead><tr><th>รหัส</th><th>รายการ</th><th>หน่วย</th><th style="text-align:right">ค่าวัสดุ/หน่วย</th><th style="text-align:right">ค่าแรง/หน่วย</th><th>แหล่งอ้างอิง</th><th>ณ วันที่</th></tr></thead><tbody id="pbB"></tbody></table>
+    <form class="addform" id="pbAdd" hidden>
+      <input id="pa-name" placeholder="ชื่อรายการ" required>
+      <select id="pa-cat"></select>
+      <input id="pa-unit" placeholder="หน่วย" required>
+      <input id="pa-mat" placeholder="ค่าวัสดุ/หน่วย" inputmode="decimal">
+      <input id="pa-lab" placeholder="ค่าแรง/หน่วย" inputmode="decimal">
+      <input id="pa-src" placeholder="แหล่งอ้างอิงราคา" required>
+      <button class="btn primary" type="submit">บันทึกราคา</button>
+    </form>
+  </div>
+</section>
+</div>
+
+<script>
+(()=>{
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const CATS=["งานโครงสร้าง","งานสถาปัตยกรรม","งานระบบไฟฟ้า","งานระบบสุขาภิบาล","งานระบบดับเพลิง","งานระบบปรับอากาศ","งานอื่นๆ"];
+const OFFLINE=!!window.QTO_OFFLINE;
+const rowLab=r=>r.labPct!=null?(+r.mat||0)*r.labPct/100:(+r.lab||0);
+const fmt=(n,d=2)=>(isFinite(n)?n:0).toLocaleString("th-TH",{minimumFractionDigits:d,maximumFractionDigits:d});
+const uid=()=>Math.random().toString(36).slice(2,10);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function toast(t){const d=document.createElement("div");d.className="toast";d.textContent=t;document.body.appendChild(d);setTimeout(()=>d.remove(),2600)}
+
+/* ---------- project state ---------- */
+const KEY="qto.project.v1";
+let P=null;
+function blank(){return {name:"โครงการใหม่",files:[],takeoffs:[],boq:[],calib:{},factorF:1,vat:false,sample:false}}
+function load(){try{const s=localStorage.getItem(KEY);if(s)return JSON.parse(s)}catch(e){}return null}
+let saveT=0;function save(){clearTimeout(saveT);saveT=setTimeout(()=>{try{localStorage.setItem(KEY,JSON.stringify(P))}catch(e){}},250)}
+
+/* loaded file data (in memory only) */
+const F={}; // name -> {kind, dxf, pdf, pages, img, table, ifc}
+let cur={file:null,page:1};
+let sel=null; // selected takeoff id
+let tool="pan";
+
+/* ---------- price book ---------- */
+let catalog=[]; let catMeta=null; let db=null; let canWrite=false;
+const priceBy=code=>catalog.find(p=>p.code===code);
+
+/* ---------- MEP-only mode: classify every takeoff into a building system ---------- */
+const MEP_CATS=CATS.slice(2,6), OTHER_CAT=CATS[CATS.length-1];
+const [C_E,C_P,C_F,C_H]=MEP_CATS;
+const SYS_SHORT={[C_E]:"ไฟฟ้า",[C_P]:"สุขาภิบาล",[C_F]:"ดับเพลิง",[C_H]:"ปรับอากาศ"};
+const mepOn=()=>P?.auto?.mepOnly!==false;
+const catOK=c=>!mepOn()||MEP_CATS.includes(c)||c===OTHER_CAT;
+const RX_SYS=[
+ [C_F,/(^|[^A-Z])(F|FP|FA|FS|FPS|SPK|SPR)[-_]|FIRE|SPRINK|\bSPK\b|\bFHC\b|HYDRANT|FIRESUPPRESSION|SMOKE|HEAT\s*DET|\bFACP\b|ดับเพลิง|สปริงเกลอร์|แจ้งเหตุ|เพลิงไหม้/],
+ [C_H,/(^|[^A-Z])(M|MH|ME|AC|ACMV|HVAC|MV|VE|EX)[-_]|HVAC|ACMV|DUCT|AIR\s*TERMINAL|AIRTERMINAL|DIFFUSER|GRILLE|\bFCU\b|\bAHU\b|\bCDU\b|\bVRF|\bVRV|CHILLER|\bCHW|CONDENS|REFRIG|COPPER|EXHAUST|VENTILAT|\bFAN\b|FAN\s*COIL|UNITARY|SPLIT\s*TYPE|COOLING|BOILER|\bCOIL\b|แอร์|ปรับอากาศ|ระบายอากาศ|ท่อลม|ท่อน้ำยา|พัดลม/],
+ [C_E,/(^|[^A-Z])(E|EE|EL|ELE|ELEC|EP|EC|LT|LTG|PWR|COM|TEL|CCTV|MATV|ELV|SEC|LP)[-_]|ELECT|(?<!SKY)LIGHT(?!WEIGHT)|LUMIN|LAMP|POWER|OUTLET|RECEP|SOCKET|CABLE|CONDUIT|\bEMT\b|\bIMC\b|\bRSC\b|\bTHW\b|\bVAF\b|WIRE|SWITCH|PANEL|\bMDB\b|\bSDB\b|\bDB\b|LOAD\s*CENTER|TRAY|WIREWAY|GROUNDING|GROUND\s*ROD|EARTHING|LIGHTNING|TRANSFORMER|GENERATOR|\bUPS\b|DISTRIBUTIONBOARD|CABLECARRIER|โคม|ไฟฟ้า|เต้ารับ|สวิตช์|สายไฟ|ท่อร้อยสาย|ตู้ไฟ|ฟ้าผ่า|หม้อแปลง/],
+ [C_P,/(^|[^A-Z])(P|PL|PLB|PB|SN|SAN|SANI|WS|CW|HW|SW|WW|DR|VP|SD|RW)[-_]|PIPE|PLUMB|SANIT|\bPVC\b|\bPPR\b|HDPE|\bGSP\b|\bGI\b|VALVE|PUMP|TANK|DRAIN|WASTE|SOIL|\bVENT\b|STORM|RAIN|WATER(?!PROOF)|SEWAGE|\bWC\b|TOILET|LAVATORY|BASIN|URINAL|SINK|FAUCET|ประปา|สุขาภิบาล|น้ำดี|น้ำทิ้ง|น้ำเสีย|ท่อน้ำ|โสโครก|ระบายน้ำ|ส้วม|ชักโครก|อ่างล้าง|ก๊อก|ถังเก็บน้ำ|บำบัด/]];
+const RX_NON=/(^|[^A-Z])(A|AR|ARC|ARCH|S|STR|C|CIV|L|LS|I|ID|INT)[-_]|ARCH|STRUC|\bWALL|SLAB|BEAM|COLUMN|FOOTING|\bPILE|DOOR|WINDOW|STAIR|ROOF|CEILING(?!\s*FAN)|FURN|GLAZ|CURTAIN|RAILING|PARTITION|LANDSC|\bTREE|COVERING|MEMBER|REBAR|CONCRETE|ผนัง|คาน|เสา|ประตู|หน้าต่าง|ฝ้า|บันได|หลังคา|โครงสร้าง|สถาปัต|เฟอร์นิเจอร์/;
+const RX_ARCH_PREFIX=/^(A|AR|ARC|ARCH|S|STR|C|CIV|L|LS|I|ID|INT)[-_ ]/i;
+const IFC_SYS={PIPESEGMENT:C_P,PIPEFITTING:C_P,FLOWSEGMENT:C_P,FLOWFITTING:C_P,FLOWTERMINAL:C_P,SANITARYTERMINAL:C_P,VALVE:C_P,PUMP:C_P,TANK:C_P,FLOWCONTROLLER:C_P,
+  DUCTSEGMENT:C_H,DUCTFITTING:C_H,AIRTERMINAL:C_H,FAN:C_H,UNITARYEQUIPMENT:C_H,CHILLER:C_H,COIL:C_H,BOILER:C_H,ENERGYCONVERSIONDEVICE:C_H,
+  LIGHTFIXTURE:C_E,OUTLET:C_E,SWITCHINGDEVICE:C_E,ELECTRICDISTRIBUTIONBOARD:C_E,DISTRIBUTIONBOARD:C_E,CABLESEGMENT:C_E,CABLECARRIERSEGMENT:C_E,CABLECARRIERFITTING:C_E,ELECTRICAPPLIANCE:C_E,
+  FIRESUPPRESSIONTERMINAL:C_F};
+const IFC_NON=/^(WALL|WALLSTANDARDCASE|SLAB|COLUMN|BEAM|DOOR|WINDOW|STAIR|STAIRFLIGHT|ROOF|COVERING|RAILING|MEMBER|PLATE|FOOTING|PILE|CURTAINWALL|FURNISHINGELEMENT)$/;
+const UP=s=>" "+String(s||"").toUpperCase().replace(/_/g," ")+" ";
+function sysText(s){if(!s||!s.trim())return "";const S=UP(s);for(const [c,re] of RX_SYS)if(re.test(S))return c;return ""}
+const LSC={};
+function layerSys(l){if(!l)return "";if(l in LSC)return LSC[l];let r="";
+  if(RX_ARCH_PREFIX.test(l))r="non";else{r=sysText(l);if(!r&&(RX_NON.test(UP(l))||NOISE.test(l)))r="non"}return LSC[l]=r}
+function sysCalc(t){
+  if(t.kind==="manual"||t.kind==="text")return "user";
+  const own=[t.block,t.label&&!/^Layer /.test(t.label)&&t.label!==t.layer?t.label:"",t.hint].filter(Boolean).join(" ");
+  const p0=t.code&&priceBy(t.code);if(p0)return MEP_CATS.includes(p0.cat)?p0.cat:p0.cat===OTHER_CAT?"":"non";
+  if(F[t.file]?.kind==="ifc"){const c=sysText(own);if(c)return c;if(IFC_SYS[t.layer])return IFC_SYS[t.layer];if(IFC_NON.test(t.layer||""))return "non"}
+  if(catalog.length){const m=matchTakeoff(t);if(m&&m.length){const p=priceBy(m[0].code);if(p)return MEP_CATS.includes(p.cat)?p.cat:p.cat===OTHER_CAT?"":"non"}}
+  const c=sysText(own);if(c)return c;
+  if(t.layer&&t.kind!=="pdfauto"){const l=layerSys(t.layer);if(l)return l}
+  if(own&&RX_NON.test(UP(own)))return "non";
+  return "";
+}
+const SYSM=new Map();let sysCatN=-1;
+function sysOf(t){if(catalog.length!==sysCatN){SYSM.clear();sysCatN=catalog.length}const k=t.id+"|"+t.qty;let v=SYSM.get(k);if(v===undefined){v=sysCalc(t);SYSM.set(k,v)}return v}
+const isMepT=t=>{const s=sysOf(t);return s==="user"||MEP_CATS.includes(s)};
+const isNonT=t=>sysOf(t)==="non";
+function dropNonMepRows(){const n=P.boq.length;P.boq=P.boq.filter(r=>!(r.auto&&!catOK(r.cat)));return n-P.boq.length}
+
+/* ======== DXF PARSER ======== */
+function parseDXF(text){
+  const L=text.split(/\r\n|\r|\n/); const ents=[]; let section=null, expect=false, hv=null, insunits=0;
+  let e=null, poly=null;
+  const fin=()=>{ if(e){ if(e.type==="VERTEX"&&poly){poly.v.push(e.v[0]||{x:0,y:0,b:0})} else if(e.type!=="SEQEND"&&e.type!=="VERTEX") ents.push(e); } e=null; };
+  for(let i=0;i+1<L.length;i+=2){
+    const c=parseInt(L[i],10); const v=L[i+1]; const vt=v.trim();
+    if(isNaN(c))continue;
+    if(c===0){
+      if(section==="ENTITIES"){
+        if(vt==="VERTEX"&&poly){fin();e={type:"VERTEX",v:[{x:0,y:0,b:0}]};continue}
+        if(vt==="SEQEND"){fin();poly=null;e=null;continue}
+        fin();
+      }
+      if(vt==="SECTION"){expect=true;continue}
+      if(vt==="ENDSEC"){fin();section=null;continue}
+      if(section==="ENTITIES"){e={type:vt,h:"",layer:"0",v:[],closed:false};if(vt==="POLYLINE"){poly=e}}
+      continue;
+    }
+    if(expect&&c===2){section=vt;expect=false;continue}
+    if(section==="HEADER"){ if(c===9)hv=vt; else if(hv==="$INSUNITS"&&c===70){insunits=parseInt(vt,10)} continue }
+    if(section!=="ENTITIES"||!e)continue;
+    const n=parseFloat(vt);
+    if(e.type==="VERTEX"){const p=e.v[0]; if(c===10)p.x=n;else if(c===20)p.y=n;else if(c===42)p.b=n; continue}
+    switch(c){
+      case 5:e.h=vt;break; case 8:e.layer=vt;break;
+      case 2:e.name=vt;break;
+      case 1:e.text=v;break; case 3:e.text=(e.text||"")+v;break;
+      case 40:e.r=n;break; case 50:e.a1=n;break; case 51:e.a2=n;break;
+      case 70:e.flags=n|0;if(e.type==="LWPOLYLINE"||e.type==="POLYLINE")e.closed=!!(n&1);break;
+      case 10: if(e.type==="LWPOLYLINE")e.v.push({x:n,y:0,b:0});else e.x=n;break;
+      case 20: if(e.type==="LWPOLYLINE"){if(e.v.length)e.v[e.v.length-1].y=n}else e.y=n;break;
+      case 11:e.x2=n;break; case 21:e.y2=n;break;
+      case 42: if(e.type==="LWPOLYLINE"&&e.v.length)e.v[e.v.length-1].b=n;break;
+    }
+  }
+  fin();
+  const unitMap={1:0.0254,2:0.3048,4:0.001,5:0.01,6:1};
+  const out=[];let bb=[Infinity,Infinity,-Infinity,-Infinity];
+  const ext=(x,y)=>{if(!isFinite(x)||!isFinite(y))return;bb[0]=Math.min(bb[0],x);bb[1]=Math.min(bb[1],y);bb[2]=Math.max(bb[2],x);bb[3]=Math.max(bb[3],y)};
+  let hn=0;
+  for(const e of ents){
+    if(!e.h)e.h="E"+(++hn);
+    const g=geom(e); if(!g)continue; Object.assign(e,g); out.push(e);
+    if(e.pts)for(const p of e.pts)ext(p[0],p[1]); else if(e.cx!=null){ext(e.cx-(e.r||0),e.cy-(e.r||0));ext(e.cx+(e.r||0),e.cy+(e.r||0))}
+  }
+  return {ents:out,bbox:bb,unit:unitMap[insunits]||0.001,insunits};
+}
+function bulgePts(a,b,bulge,out){
+  if(!bulge){out.push([b.x,b.y]);return}
+  const th=4*Math.atan(bulge), dx=b.x-a.x, dy=b.y-a.y, ch=Math.hypot(dx,dy); if(ch===0)return;
+  const r=ch/(2*Math.sin(Math.abs(th)/2)); const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+  const d=Math.sqrt(Math.max(0,r*r-ch*ch/4))*(Math.abs(th)>Math.PI?-1:1)*Math.sign(bulge);
+  const cx=mx-dy/ch*d, cy=my+dx/ch*d; const s=Math.atan2(a.y-cy,a.x-cx); const n=Math.max(6,Math.ceil(Math.abs(th)/(Math.PI/18)));
+  for(let k=1;k<=n;k++){const t=s+th*k/n;out.push([cx+r*Math.cos(t),cy+r*Math.sin(t)])}
+}
+function geom(e){
+  const T=e.type;
+  if(T==="LINE")return {pts:[[e.x,e.y],[e.x2,e.y2]],len:Math.hypot(e.x2-e.x,e.y2-e.y),area:0};
+  if(T==="LWPOLYLINE"||T==="POLYLINE"){
+    const v=e.v; if(v.length<2)return null; const pts=[[v[0].x,v[0].y]]; let len=0, sa=0;
+    const segs=e.closed?v.length:v.length-1;
+    for(let i=0;i<segs;i++){
+      const a=v[i], b=v[(i+1)%v.length], ch=Math.hypot(b.x-a.x,b.y-a.y);
+      if(a.b){const th=4*Math.atan(a.b), r=ch/(2*Math.sin(Math.abs(th)/2)); len+=Math.abs(r*th); sa+=Math.sign(a.b)*r*r*(Math.abs(th)-Math.sin(Math.abs(th)))/2}
+      else len+=ch;
+      sa+=(a.x*b.y-b.x*a.y)/2;
+      bulgePts(a,b,a.b,pts);
+    }
+    return {pts,len,area:e.closed?Math.abs(sa):0};
+  }
+  if(T==="CIRCLE")return {cx:e.x,cy:e.y,len:2*Math.PI*e.r,area:Math.PI*e.r*e.r};
+  if(T==="ARC"){let d=(e.a2-e.a1);while(d<=0)d+=360;const pts=[];const n=Math.max(8,Math.ceil(d/8));for(let k=0;k<=n;k++){const t=(e.a1+d*k/n)*Math.PI/180;pts.push([e.x+e.r*Math.cos(t),e.y+e.r*Math.sin(t)])}return {pts,len:e.r*d*Math.PI/180,area:0}}
+  if(T==="INSERT")return {cx:e.x,cy:e.y,r:0,len:0,area:0};
+  if(T==="TEXT"||T==="MTEXT"){const t=(e.text||"").replace(/\\[A-Za-z][^;]*;/g,"").replace(/[{}]/g,"").replace(/\\P/g," ").trim();return {cx:e.x,cy:e.y,txt:t,th:e.r||0,len:0,area:0,r:0}}
+  return null;
+}
+function dxfTakeoffs(name,d){
+  const by={}; const add=(k,o)=>{(by[k]=by[k]||Object.assign({qty:0,handles:[]},o));by[k].qty+=o.q;by[k].handles.push(o.h)};
+  for(const e of d.ents){
+    if(e.type==="INSERT"){add("count|"+e.layer+"|"+e.name,{mtype:"count",layer:e.layer,block:e.name,q:1,h:e.h});continue}
+    if(e.txt!=null)continue;
+    if(e.len>0)add("len|"+e.layer,{mtype:"len",layer:e.layer,q:e.len,h:e.h});
+    if(e.area>0)add("area|"+e.layer,{mtype:"area",layer:e.layer,q:e.area,h:e.h});
+  }
+  const u=d.unit, out=[];
+  for(const k in by){const g=by[k]; let qty=g.qty, unit="จุด";
+    if(g.mtype==="len"){qty*=u;unit="ม."} else if(g.mtype==="area"){qty*=u*u;unit="ตร.ม."}
+    out.push({id:name+"|"+k,file:name,kind:"auto",mtype:g.mtype,label:g.block?`${g.block}`:`Layer ${g.layer}`,layer:g.layer,block:g.block||null,qty,unit,refs:{handles:g.handles},src:`${name} · Layer ${g.layer}${g.block?" · Block "+g.block:""} · ${g.handles.length} ชิ้น`});
+  }
+  return out.sort((a,b)=>a.mtype.localeCompare(b.mtype)||a.label.localeCompare(b.label));
+}
+
+/* ======== IFC PARSER ======== */
+const IFC_EL=/^IFC(WALL|WALLSTANDARDCASE|SLAB|COLUMN|BEAM|DOOR|WINDOW|STAIR|STAIRFLIGHT|ROOF|COVERING|RAILING|MEMBER|PLATE|FOOTING|PILE|CURTAINWALL|PIPESEGMENT|PIPEFITTING|DUCTSEGMENT|DUCTFITTING|AIRTERMINAL|FLOWTERMINAL|SANITARYTERMINAL|LIGHTFIXTURE|OUTLET|SWITCHINGDEVICE|ELECTRICDISTRIBUTIONBOARD|DISTRIBUTIONBOARD|CABLESEGMENT|CABLECARRIERSEGMENT|CABLECARRIERFITTING|PUMP|VALVE|FAN|UNITARYEQUIPMENT|CHILLER|COIL|BOILER|TANK|FIRESUPPRESSIONTERMINAL|ELECTRICAPPLIANCE|FLOWSEGMENT|FLOWFITTING|FLOWCONTROLLER|ENERGYCONVERSIONDEVICE|BUILDINGELEMENTPROXY|FURNISHINGELEMENT)$/;
+function splitArgs(s){const out=[];let d=0,q=false,b="";for(let i=0;i<s.length;i++){const c=s[i];if(q){b+=c;if(c==="'"){if(s[i+1]==="'"){b+=s[++i]}else q=false}continue}if(c==="'"){q=true;b+=c;continue}if(c==="("){d++;b+=c;continue}if(c===")"){d--;b+=c;continue}if(c===","&&d===0){out.push(b.trim());b="";continue}b+=c}if(b.trim()!=="")out.push(b.trim());return out}
+const ifcStr=a=>a&&a[0]==="'"?a.slice(1,-1).replace(/''/g,"'").replace(/\\X2\\([0-9A-F]+)\\X0\\/g,(m,h)=>h.match(/.{4}/g).map(x=>String.fromCharCode(parseInt(x,16))).join("")):"";
+const ifcRefs=a=>(a||"").replace(/[()]/g,"").split(",").map(x=>x.trim()).filter(x=>x[0]==="#").map(x=>x.slice(1));
+const ifcNum=a=>{const m=(a||"").match(/-?[\d.]+(E[-+]?\d+)?/i);return m?parseFloat(m[0]):NaN};
+function parseIFC(text){
+  const R={}; const re=/#(\d+)\s*=\s*(IFC\w+)\s*\(([\s\S]*?)\);\s*(?=#\d+\s*=|ENDSEC)/g; let m;
+  while((m=re.exec(text)))R[m[1]]={t:m[2].toUpperCase(),a:m[3]};
+  let lenF=1;
+  for(const id in R){const r=R[id];if(r.t==="IFCSIUNIT"&&/LENGTHUNIT/.test(r.a)){lenF=/MILLI/.test(r.a)?0.001:/CENTI/.test(r.a)?0.01:1}}
+  const els={}; for(const id in R){const r=R[id];if(IFC_EL.test(r.t)){const A=splitArgs(r.a);els[id]={id,t:r.t.slice(3),name:ifcStr(A[2])||"(ไม่มีชื่อ)",otype:ifcStr(A[4]),q:{}}}}
+  for(const id in R){const r=R[id];if(r.t!=="IFCRELDEFINESBYPROPERTIES")continue;const A=splitArgs(r.a);const tgt=ifcRefs(A[4]);const ps=R[ifcRefs(A[5])[0]];
+    if(!ps||ps.t!=="IFCELEMENTQUANTITY")continue;const PA=splitArgs(ps.a);
+    for(const qid of ifcRefs(PA[5])){const q=R[qid];if(!q)continue;const QA=splitArgs(q.a);const nm=ifcStr(QA[0]);const val=ifcNum(QA[3]);if(!isFinite(val))continue;
+      let k=null;if(q.t==="IFCQUANTITYLENGTH"&&/^length$/i.test(nm))k="len";else if(q.t==="IFCQUANTITYAREA"&&/(NetSideArea|NetArea|NetFootprintArea|GrossArea)/i.test(nm))k="area";else if(q.t==="IFCQUANTITYVOLUME"&&/(NetVolume|GrossVolume)/i.test(nm))k="vol";
+      if(!k)continue;for(const t of tgt){const el=els[t];if(el&&el.q[k]==null)el.q[k]=val}}}
+  return {els:Object.values(els),lenF};
+}
+function ifcTakeoffs(name,d){
+  const by={};
+  for(const el of d.els){const key=el.t+"|"+(el.otype||el.name);const g=by[key]=by[key]||{t:el.t,label:el.otype||el.name,ids:[],len:0,area:0,vol:0,hasL:0,hasA:0,hasV:0};g.ids.push(el.id);
+    if(el.q.len!=null){g.len+=el.q.len;g.hasL++} if(el.q.area!=null){g.area+=el.q.area;g.hasA++} if(el.q.vol!=null){g.vol+=el.q.vol;g.hasV++}}
+  const out=[];const f=d.lenF;
+  for(const k in by){const g=by[k];const base={file:name,kind:"auto",layer:g.t,refs:{ids:g.ids}};
+    const src=`${name} · ${g.t} · ${g.ids.length} ชิ้น`;
+    out.push({...base,id:name+"|count|"+k,mtype:"count",label:`${g.t} ${g.label}`,qty:g.ids.length,unit:"ชิ้น",src});
+    if(g.hasL)out.push({...base,id:name+"|len|"+k,mtype:"len",label:`${g.t} ${g.label}`,qty:g.len*f,unit:"ม.",src:src+" · Qto Length"});
+    if(g.hasA)out.push({...base,id:name+"|area|"+k,mtype:"area",label:`${g.t} ${g.label}`,qty:g.area,unit:"ตร.ม.",src:src+" · Qto Area"});
+    if(g.hasV)out.push({...base,id:name+"|vol|"+k,mtype:"vol",label:`${g.t} ${g.label}`,qty:g.vol,unit:"ลบ.ม.",src:src+" · Qto Volume"});
+  }
+  return out;
+}
+
+/* ======== TABLE (CSV/XLSX: Revit schedule, SketchUp report) ======== */
+function tableTakeoffs(name,tb){
+  const {rows,qcol,lcol,ucol}=tb; const out=[];
+  rows.forEach((r,i)=>{ if(i===0)return; const q=parseFloat(String(r[qcol]??"").replace(/[^\d.\-]/g,"")); if(!isFinite(q)||q===0)return;
+    const lab=String(r[lcol]??"").trim()||`แถว ${i+1}`; const u=ucol>=0?String(r[ucol]??"").trim():"";
+    out.push({id:name+"|row|"+i,file:name,kind:"table",mtype:"qty",label:lab,qty:q,unit:u||"หน่วย",refs:{row:i},src:`${name} · แถว ${i+1} · คอลัมน์ “${rows[0][qcol]??qcol}”`});
+  });
+  return out;
+}
+function guessCols(rows){
+  const h=(rows[0]||[]).map(x=>String(x).toLowerCase());
+  const find=re=>h.findIndex(x=>re.test(x));
+  let q=find(/quantity|qty|count|จำนวน|ปริมาณ|length|area|volume|ความยาว|พื้นที่/); let l=find(/description|family|type|name|รายการ|ชื่อ|ประเภท|material/); let u=find(/^unit|หน่วย/);
+  if(q<0){for(let c=h.length-1;c>=0;c--){if(rows.slice(1,6).some(r=>isFinite(parseFloat(r[c])))){q=c;break}}}
+  if(l<0)l=0; return {qcol:Math.max(q,0),lcol:l,ucol:u};
+}
+
+/* ======== FILE INTAKE ======== */
+const GUIDE={
+ rvt:"ไฟล์ Revit อ่านตรงในเบราว์เซอร์ไม่ได้ ให้เลือกทางใดทางหนึ่ง: (1) File → Export → IFC แล้วเปิด .ifc ที่นี่ จะนับชิ้นงานและดึง Qto ความยาว/พื้นที่/ปริมาตร (2) ทำ Schedule/Quantities แล้ว Export เป็น .txt/.csv (3) Export DWG แล้วแปลงเป็น DXF",
+ rfa:"ไฟล์ Family ของ Revit ไม่มีปริมาณงาน ให้ใช้ไฟล์โครงการ (.rvt) แล้ว Export เป็น IFC หรือ Schedule CSV",
+ skp:"ไฟล์ SketchUp อ่านตรงไม่ได้ ให้ Export → 2D/3D Model เป็น DXF หรือ IFC (SketchUp Pro) หรือใช้ Generate Report → CSV แล้วนำมาเปิดที่นี่",
+ nwd:"ไฟล์ Navisworks ให้ Export รายการ Quantification เป็น CSV/XLSX แล้วนำมาเปิดที่นี่",
+};
+GUIDE.nwc=GUIDE.nwd;
+async function intake(files,opts={}){
+  const opened=[];
+  for(const f of files){
+    const ext=f.name.split(".").pop().toLowerCase();
+    try{
+      if(GUIDE[ext]){showNote(f.name,GUIDE[ext]);continue}
+      if(ext==="dwg"||ext==="dxf"){let db=null;
+        try{progress(`กำลังเปิด ${f.name} (ไฟล์ใหญ่อาจใช้เวลาครึ่งนาที)…`);await new Promise(r=>setTimeout(r,30));db=await readCad(f,ext==="dxf")}catch(err){if(ext==="dwg"){progress(null);throw new Error((err.message||err)+" — ลองบันทึกเป็น DXF แล้วเปิดใหม่")}}
+        if(db){progress("วิเคราะห์ Block ท่อและสัญลักษณ์…");await new Promise(r=>setTimeout(r,30));const uo=P.calib[f.name+"#u"];const r=cadAnalyze(f.name,db,uo);F[f.name]={kind:"dxf",dxf:r.disp,cadDb:db,cadInfo:r.info};regAuto(f.name,r.takeoffs);progress(null);if(!r.takeoffs.length)showNote(f.name,"ไม่พบท่อหรือสัญลักษณ์ที่รู้จักในแปลน")}
+        else{const d=parseDXF(await f.text());F[f.name]={kind:"dxf",dxf:d};regAuto(f.name,dxfTakeoffs(f.name,d))}}
+      else if(false){const d=parseDXF(await f.text());F[f.name]={kind:"dxf",dxf:d};const unitSaved=(P.calib[f.name+"#u"]);if(unitSaved)d.unit=unitSaved;regAuto(f.name,dxfTakeoffs(f.name,d));if(!d.ents.length)showNote(f.name,"ไม่พบเส้นใน ENTITIES — ถ้าเป็น DXF แบบ Binary ให้ SAVEAS เป็น ASCII DXF")}
+      else if(ext==="ifc"){const d=parseIFC(await f.text());F[f.name]={kind:"ifc",ifc:d};regAuto(f.name,ifcTakeoffs(f.name,d));if(!d.els.length)showNote(f.name,"ไม่พบชิ้นงานในไฟล์ IFC นี้")}
+      else if(ext==="pdf"){if(!window.pdfjsLib)throw new Error("โหลดตัวอ่าน PDF ไม่สำเร็จ");const doc=await pdfjsLib.getDocument({data:new Uint8Array(await f.arrayBuffer())}).promise;F[f.name]={kind:"pdf",pdf:doc,pages:doc.numPages,ras:{}}}
+      else if(["png","jpg","jpeg","webp"].includes(ext)){const img=await loadImg(f);F[f.name]={kind:"img",img}}
+      else if(["csv","xlsx","xls","txt"].includes(ext)){
+        if(!window.XLSX)throw new Error("โหลดตัวอ่านตารางไม่สำเร็จ");
+        const wb=ext==="csv"||ext==="txt"?XLSX.read(await f.text(),{type:"string"}):XLSX.read(new Uint8Array(await f.arrayBuffer()),{type:"array"});
+        const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
+        const tb={rows,...guessCols(rows)};F[f.name]={kind:"table",table:tb};regAuto(f.name,tableTakeoffs(f.name,tb),"table");
+      } else {showNote(f.name,"ยังไม่รองรับไฟล์ชนิดนี้ ส่งออกเป็น DXF, PDF, IFC หรือ CSV ก่อน");continue}
+      if(!P.files.find(x=>x.name===f.name))P.files.push({name:f.name,kind:ext==='dwg'?'dwg':F[f.name].kind});
+      opened.push(f.name);openFile(f.name,1);
+    }catch(err){showNote(f.name,"เปิดไฟล์ไม่สำเร็จ: "+(err.message||err))}
+  }
+  save();renderFiles();renderTO();renderBOQ();
+  const SAMPLE="ตัวอย่าง-อาคารสำนักงาน.dxf";
+  if(opened.some(n=>n!==SAMPLE)&&P.files.some(f=>f.name===SAMPLE)){P.files=P.files.filter(f=>f.name!==SAMPLE);P.takeoffs=P.takeoffs.filter(t=>t.file!==SAMPLE);P.boq=P.boq.filter(r=>!(r.tids||[]).some(id=>id.startsWith(SAMPLE+"|")));delete F[SAMPLE];P.autoSummary=null;
+    if(/^ตัวอย่าง/.test(P.name)){P.name=opened[0].replace(/\.[^.]+$/,"");$("#projName").value=P.name}save();renderFiles();renderTO();renderBOQ()}
+  if(opened.length&&(opts.auto||P.auto?.onOpen))await autoRun(opened.filter(n=>F[n].kind!=="img"));
+}
+function loadImg(f){return new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error("อ่านรูปไม่ได้"));i.src=URL.createObjectURL(f)})}
+function regAuto(name,list,kind="auto"){
+  const keep=P.takeoffs.filter(t=>!(t.file===name&&t.kind===kind));
+  P.takeoffs=keep.concat(list);SYSM.clear();
+  const ids=new Set(P.takeoffs.map(t=>t.id));
+  for(const r of P.boq)r.tids=(r.tids||[]).filter(id=>ids.has(id));
+}
+function showNote(name,msg){const n=$("#fileNote");n.innerHTML=`<div class="note"><b>${esc(name)}</b><br>${esc(msg)}</div>`}
+
+/* ======== VIEWER ======== */
+const cv=$("#cv"), ctx=cv.getContext("2d"), stage=$("#stage");
+let V={s:1,tx:0,ty:0,flip:false}, draft=null; // draft: {mtype, pts}
+let world=null; // {w,h,bbox,flip}
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function W2S(x,y){return [x*V.s+V.tx,(V.flip?-y:y)*V.s+V.ty]}
+function S2W(sx,sy){const x=(sx-V.tx)/V.s, y=(sy-V.ty)/V.s;return [x,V.flip?-y:y]}
+function resize(){const r=stage.getBoundingClientRect(),d=devicePixelRatio||1;cv.width=r.width*d;cv.height=r.height*d;ctx.setTransform(d,0,0,d,0,0);if(world&&world.needFit&&r.width>=50)fit(world.needFit);else draw()}
+new ResizeObserver(resize).observe(stage);
+function fit(bb){
+  const r=stage.getBoundingClientRect(); if(!bb||!isFinite(bb[0]))return;
+  if(r.width<50||r.height<50){if(world)world.needFit=bb;return}if(world)world.needFit=null;
+  let [x0,y0,x1,y1]=bb; const w=Math.max(x1-x0,1e-6),h=Math.max(y1-y0,1e-6);
+  V.s=Math.min((r.width-40)/w,(r.height-40)/h);
+  const cx=(x0+x1)/2, cy=(y0+y1)/2; V.tx=r.width/2-cx*V.s; V.ty=r.height/2-(V.flip?-cy:cy)*V.s; draw();
+}
+function scaleNow(){ // meters per world unit
+  const f=F[cur.file]; if(!f)return null;
+  if(f.kind==="dxf")return f.dxf.unit;
+  const c=P.calib[cur.file+"#"+cur.page]; return c||null;
+}
+async function openFile(name,page=1){
+  cur={file:name,page}; draft=null;
+  const f=F[name]; $("#tview").hidden=true; $("#empty").hidden=!!f;
+  $("#pageCtl").hidden=!(f&&f.kind==="pdf"); $("#scaleCtl").hidden=!(f&&(f.kind==="pdf"||f.kind==="img"));
+  $("#unitCtl").hidden=!(f&&f.kind==="dxf"); $("#textCtl").hidden=!(f&&(f.kind==="pdf"||f.kind==="dxf"));
+  if(!f){world=null;$("#empty").textContent=`เปิดไฟล์ “${name}” อีกครั้งเพื่อดูตำแหน่งที่ถอดปริมาณ`;draw();renderFiles();return}
+  if(f.kind==="dxf"){V.flip=true;world={bbox:f.dxf.bbox};$("#unitSel").value=String(f.dxf.unit);fit(f.dxf.bbox)}
+  else if(f.kind==="img"){V.flip=false;world={bbox:[0,0,f.img.naturalWidth,f.img.naturalHeight]};fit(world.bbox)}
+  else if(f.kind==="pdf"){V.flip=false;const pg=await f.pdf.getPage(page);const vp=pg.getViewport({scale:1});
+    if(!f.ras[page]){const R=Math.min(3,4200/Math.max(vp.width,vp.height));const c=document.createElement("canvas");const v2=pg.getViewport({scale:R});c.width=v2.width;c.height=v2.height;await pg.render({canvasContext:c.getContext("2d"),viewport:v2}).promise;f.ras[page]={c,R,vp}}
+    world={bbox:[0,0,vp.width,vp.height]};$("#pgLbl").textContent=`${page}/${f.pages}`;fit(world.bbox)}
+  else if(f.kind==="table"||f.kind==="ifc"){world=null;renderTableView()}
+  const c=P.calib[name+"#"+page];$("#scaleSel").value="";
+  renderFiles();draw();hud();
+}
+function renderTableView(){
+  const f=F[cur.file];const tv=$("#tview");tv.hidden=false;
+  const t=P.takeoffs.find(x=>x.id===sel);
+  if(f.kind==="table"){const tb=f.table;const hl=t&&t.file===cur.file&&t.refs.row!=null?t.refs.row:-1;
+    const opts=(tb.rows[0]||[]).map((h,i)=>`<option value="${i}">${esc(h||("คอลัมน์ "+(i+1)))}</option>`).join("");
+    tv.innerHTML=`<div class="tobar" style="border-top:0;border-bottom:1px solid var(--rule)"><span class="label">จับคู่คอลัมน์</span> ชื่อ <select id="c-l">${opts}</select> ปริมาณ <select id="c-q">${opts}</select> หน่วย <select id="c-u"><option value="-1">—</option>${opts}</select></div><table><tbody>${tb.rows.slice(0,2000).map((r,i)=>`<tr data-r="${i}" class="${i===hl?"hl":""}">${(i===0?r.map(c=>`<th>${esc(c)}</th>`):r.map(c=>`<td>${esc(c)}</td>`)).join("")}</tr>`).join("")}</tbody></table>`;
+    $("#c-l").value=tb.lcol;$("#c-q").value=tb.qcol;$("#c-u").value=tb.ucol;
+    for(const [id,k] of [["#c-l","lcol"],["#c-q","qcol"],["#c-u","ucol"]])$(id).onchange=e=>{tb[k]=+e.target.value;regAuto(cur.file,tableTakeoffs(cur.file,tb),"table");save();renderTO();renderBOQ()};
+    if(hl>0)tv.querySelector(`tr[data-r="${hl}"]`)?.scrollIntoView({block:"center"});
+  } else {const ids=new Set(t&&t.file===cur.file?t.refs.ids:[]);const els=f.ifc.els;
+    tv.innerHTML=`<table><thead><tr><th>#</th><th>ประเภท</th><th>ชื่อ</th><th>ObjectType</th><th>ยาว (ม.)</th><th>พื้นที่</th><th>ปริมาตร</th></tr></thead><tbody>${els.slice(0,5000).map(e=>`<tr data-id="${e.id}" class="${ids.has(e.id)?"hl":""}"><td class="num">#${e.id}</td><td>${e.t}</td><td>${esc(e.name)}</td><td>${esc(e.otype)}</td><td class="num">${e.q.len!=null?fmt(e.q.len*f.ifc.lenF,3):""}</td><td class="num">${e.q.area!=null?fmt(e.q.area,3):""}</td><td class="num">${e.q.vol!=null?fmt(e.q.vol,3):""}</td></tr>`).join("")}</tbody></table>`;
+    tv.querySelector("tr.hl")?.scrollIntoView({block:"center"});
+  }
+  hud();
+}
+function layerColor(l){let h=0;for(const c of l)h=(h*31+c.charCodeAt(0))%360;return `hsl(${h} 45% ${matchMedia("(prefers-color-scheme: dark)").matches&&document.documentElement.dataset.theme!=="light"||document.documentElement.dataset.theme==="dark"?62:38}%)`}
+function draw(){
+  const r=stage.getBoundingClientRect();ctx.clearRect(0,0,r.width,r.height);
+  const f=F[cur.file]; if(!f||!world)return;
+  const mark=css("--mark");
+  const hlT=P.takeoffs.find(t=>t.id===sel&&t.file===cur.file);
+  if(f.kind==="dxf"){
+    const H=new Set(hlT&&hlT.refs.handles?hlT.refs.handles:[]); const lc={};const mo=mepOn();const fade={};
+    const pass=(hiOnly)=>{
+      for(const e of f.dxf.ents){const hi=H.has(e.h); if(hiOnly!==hi)continue;
+        ctx.strokeStyle=hi?mark:(lc[e.layer]=lc[e.layer]||layerColor(e.layer)); ctx.lineWidth=hi?3:1; ctx.globalAlpha=!hi&&mo&&(fade[e.layer]??=(layerSys(e.layer)==="non"))?.15:H.size&&!hi?.45:1;
+        if(e.pts){ctx.beginPath();e.pts.forEach((p,i)=>{const [x,y]=W2S(p[0],p[1]);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});if(e.closed)ctx.closePath();
+          if(hi&&e.area>0){ctx.fillStyle=mark;ctx.globalAlpha=.15;ctx.fill();ctx.globalAlpha=1}ctx.stroke()}
+        else if(e.type==="CIRCLE"){const [x,y]=W2S(e.cx,e.cy);ctx.beginPath();ctx.arc(x,y,Math.max(.5,e.r*V.s),0,7);ctx.stroke()}
+        else if(e.type==="INSERT"){const [x,y]=W2S(e.cx,e.cy);const s=hi?8:4;ctx.beginPath();ctx.moveTo(x-s,y);ctx.lineTo(x+s,y);ctx.moveTo(x,y-s);ctx.lineTo(x,y+s);ctx.stroke();if(hi){ctx.beginPath();ctx.arc(x,y,11,0,7);ctx.stroke()}}
+        else if(e.txt){const th=(e.th||(f.dxf.unit===1?0.25:250))*V.s;if(th>6){ctx.fillStyle=ctx.strokeStyle;ctx.font=`${Math.min(th,40)}px ${css("--f-body")}`;const [x,y]=W2S(e.cx,e.cy);ctx.fillText(e.txt,x,y)}}
+      }};
+    pass(false);pass(true);ctx.globalAlpha=1;
+  } else if(f.kind==="img"){const [x,y]=W2S(0,0);ctx.drawImage(f.img,x,y,f.img.naturalWidth*V.s,f.img.naturalHeight*V.s)}
+  else if(f.kind==="pdf"){const ra=f.ras[cur.page];if(ra){const [x,y]=W2S(0,0);ctx.imageSmoothingEnabled=true;ctx.drawImage(ra.c,x,y,ra.vp.width*V.s,ra.vp.height*V.s)}}
+  // manual takeoffs on this file/page
+  for(const t of P.takeoffs){ if(t.file!==cur.file||t.kind!=="manual"||(t.refs.page||1)!==cur.page)continue; drawShape(t.mtype,t.refs.pts,t.id===sel?mark:css("--teal"),t.id===sel)}
+  if(draft&&draft.box){const [a,b]=W2S(draft.box[0],draft.box[1]),[c,d]=W2S(draft.box[2],draft.box[3]);ctx.strokeStyle=mark;ctx.lineWidth=1.5;ctx.setLineDash([5,3]);ctx.strokeRect(Math.min(a,c),Math.min(b,d),Math.abs(c-a),Math.abs(d-b));ctx.setLineDash([])}
+  if(draft)drawShape(draft.mtype,draft.pts,mark,true,true);
+  if(hlT&&(hlT.kind==="text"||(hlT.kind==="pdfauto"&&hlT.refs.type==="text"))&&(hlT.refs.page||1)===cur.page)drawShape("count",hlT.refs.pts,mark,true);
+  if(hlT&&hlT.kind==="pdfauto"&&hlT.refs.type==="vec"&&hlT.refs.page===cur.page){const sg=F[cur.file]?.vec?.[cur.page]?.segs[hlT.refs.gk];if(sg){ctx.strokeStyle=mark;ctx.lineWidth=3;ctx.beginPath();for(const s of sg){const [a,b]=W2S(s[0],s[1]),[c,d]=W2S(s[2],s[3]);ctx.moveTo(a,b);ctx.lineTo(c,d)}ctx.stroke()}}
+}
+function drawShape(mt,pts,color,strong,isDraft){
+  if(!pts||!pts.length)return; ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=strong?3:2;
+  const S=pts.map(p=>W2S(p[0],p[1]));
+  if(mt==="count"){S.forEach(([x,y],i)=>{ctx.beginPath();ctx.arc(x,y,strong?9:7,0,7);ctx.globalAlpha=.25;ctx.fill();ctx.globalAlpha=1;ctx.stroke();ctx.font=`600 11px ${css("--f-num")}`;ctx.fillText(i+1,x+10,y-8)});return}
+  ctx.beginPath();S.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));
+  if(mt==="area"&&S.length>2){ctx.closePath();ctx.globalAlpha=.15;ctx.fill();ctx.globalAlpha=1}
+  if(mt==="cal")ctx.setLineDash([6,4]);ctx.stroke();ctx.setLineDash([]);
+  S.forEach(([x,y])=>{ctx.beginPath();ctx.arc(x,y,3.5,0,7);ctx.fill()});
+}
+function measure(mt,pts,sc){
+  if(mt==="count")return pts.length;
+  let L=0;for(let i=1;i<pts.length;i++)L+=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);
+  if(mt==="len"||mt==="cal")return L*(sc||1);
+  let a=0;for(let i=0;i<pts.length;i++){const p=pts[i],q=pts[(i+1)%pts.length];a+=p[0]*q[1]-q[0]*p[1]}return Math.abs(a/2)*(sc||1)*(sc||1);
+}
+function hud(){
+  const h=$("#hud");const f=F[cur.file];if(!f){h.innerHTML="";return}
+  const sc=scaleNow(); let s="";
+  if(f.kind==="pdf"||f.kind==="img")s+=`<span>${sc?`สเกล ${(P.calib[cur.file+"#"+cur.page+"#lbl"])||"ตั้งแล้ว"}`:`<b style="color:var(--warn)">ยังไม่ตั้งสเกล</b> — เลือกมาตราส่วนหรือกด “ตั้งสเกล”`}</span>`;
+  if(draft&&draft.pts.length){const q=measure(draft.mtype,draft.pts,sc);const u=draft.mtype==="count"?"จุด":draft.mtype==="area"?(sc?"ตร.ม.":"หน่วย²"):(sc?"ม.":"หน่วย");s+=`<span class="live num">${draft.mtype==="cal"?"เส้นอ้างอิง":"กำลังวัด"}: ${fmt(q,draft.mtype==="count"?0:2)} ${draft.mtype==="cal"?"":u}</span>`}
+  h.innerHTML=s; tobar();
+}
+function tobar(){
+  const b=$("#tobar");
+  if(draft&&draft.mtype==="sym"){const keep=$("#dName")?.value||"";b.innerHTML=`<b>ลากกรอบครอบสัญลักษณ์ 1 ตัว</b> <span class="muted">โปรแกรมจะนับตัวที่หน้าตาเหมือนกันทั้งหน้า (ซูมเข้าก่อนจะลากได้แม่นขึ้น · เลื่อนแบบให้กดปุ่ม “เลื่อน”)</span> <input id="dName" placeholder="ชื่อรายการ เช่น เต้ารับคู่" size="20" aria-label="ชื่อรายการ"> <button class="btn sm" id="dCancel">เสร็จ</button>`;$("#dName").value=keep;$("#dCancel").onclick=()=>setTool("pan");return}
+  if(draft&&draft.pts.length){b.innerHTML=`<b>${draft.mtype==="cal"?"แตะ 2 จุดบนระยะที่รู้ค่า":"แตะในแบบเพื่อเพิ่มจุด"}</b> <span class="muted">${draft.pts.length} จุด</span>
+   ${draft.mtype==="cal"?`<input id="calLen" class="num" inputmode="decimal" placeholder="ระยะจริง (ม.)" size="10" aria-label="ระยะจริงเป็นเมตร"> <button class="btn sm primary" id="calOk">ตั้งสเกล</button>`:`<input id="dName" placeholder="ชื่อรายการ เช่น ท่อน้ำดี ø1/2&quot;" size="22" aria-label="ชื่อรายการวัด"> <button class="btn sm primary" id="dOk">บันทึก</button>`}
+   <button class="btn sm" id="dUndo">ย้อนจุด</button> <button class="btn sm" id="dCancel">ยกเลิก</button>`;
+   $("#dUndo").onclick=()=>{draft.pts.pop();draw();hud()};$("#dCancel").onclick=()=>{draft.pts=[];draw();hud()};
+   if($("#calOk"))$("#calOk").onclick=doCal; if($("#dOk"))$("#dOk").onclick=commitDraft;
+   return}
+  const t=P.takeoffs.find(x=>x.id===sel);
+  if(t){b.innerHTML=`<span class="mt ${t.mtype}">${MT[t.mtype]}</span> <b>${esc(t.label)}</b> <span class="num">${fmt(t.qty,t.mtype==="count"?0:2)} ${esc(t.unit)}</span> <span class="muted" style="flex:1;min-width:0">${esc(t.src)}</span> <button class="btn sm mark" id="toBoq">เพิ่มลง BOQ</button> ${t.kind==="manual"||t.kind==="text"?`<button class="btn sm" id="toDel">ลบ</button>`:""}`;
+    $("#toBoq").onclick=()=>pickPrice(t);if($("#toDel"))$("#toDel").onclick=()=>{P.takeoffs=P.takeoffs.filter(x=>x.id!==t.id);P.boq.forEach(r=>r.tids=r.tids.filter(i=>i!==t.id));sel=null;save();renderTO();draw();hud();renderBOQ()};return}
+  b.innerHTML=`<span class="muted">${F[cur.file]?"เลือกเครื่องมือวัดด้านบน หรือแตะรายการทางซ้ายเพื่อชี้ตำแหน่ง":"—"}</span>`;
+}
+const MT={len:"ยาว",area:"พท.",count:"นับ",qty:"ตาราง",vol:"ปมต.",sym:"นับ"};
+function doCal(){const v=parseFloat($("#calLen").value);if(!(v>0)||draft.pts.length<2){toast("ใส่ระยะจริงเป็นเมตร และแตะให้ครบ 2 จุด");return}
+  const d=measure("len",draft.pts.slice(0,2),1);P.calib[cur.file+"#"+cur.page]=v/d;P.calib[cur.file+"#"+cur.page+"#lbl"]=`จากระยะ ${fmt(v,2)} ม.`;draft=null;setTool("pan");recalcManual();save();draw();hud();toast("ตั้งสเกลแล้ว")}
+function commitDraft(){
+  const sc=scaleNow(); const mt=draft.mtype; const pts=draft.pts;
+  if(mt!=="count"&&!sc){toast("ตั้งสเกลก่อนวัดความยาวหรือพื้นที่");return}
+  if((mt==="len"&&pts.length<2)||(mt==="area"&&pts.length<3)||!pts.length){toast("จุดยังไม่พอ");return}
+  const name=($("#dName").value||"").trim()||({len:"วัดความยาว",area:"วัดพื้นที่",count:"นับจุด"}[mt]);
+  const f=F[cur.file];const pg=f.kind==="pdf"?` · หน้า ${cur.page}`:"";
+  const t={id:"m-"+uid(),file:cur.file,kind:"manual",mtype:mt,label:name,qty:measure(mt,pts,sc),unit:mt==="count"?"จุด":mt==="area"?"ตร.ม.":"ม.",refs:{page:cur.page,pts},src:`${cur.file}${pg} · วัดเอง ${pts.length} จุด${mt!=="count"&&f.kind!=="dxf"?" · "+(P.calib[cur.file+"#"+cur.page+"#lbl"]||""):""}`};
+  P.takeoffs.push(t);sel=t.id;draft={mtype:mt,pts:[]};save();renderTO();draw();hud();
+}
+function recalcManual(){for(const t of P.takeoffs){if(t.kind==="pdfauto"&&t.refs.type==="vec"&&t.file===cur.file&&t.refs.page===cur.page){const sc=scaleNow();t.qty=sc?t.refs.pt*sc:0;t.src=t.src.replace(" · ยังไม่ตั้งสเกล","");continue}if(t.kind!=="manual"||t.file!==cur.file||(t.refs.page||1)!==cur.page||t.mtype==="count")continue;t.qty=measure(t.mtype,t.refs.pts,scaleNow())}renderTO();renderBOQ()}
+function setTool(t){tool=t;$$("[data-tool]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.tool===t)));draft=t==="pan"?null:{mtype:t,pts:[]};draw();hud()}
+$$("[data-tool]").forEach(b=>b.onclick=()=>{if(!F[cur.file]||!world){toast("เปิดไฟล์ DXF, PDF หรือรูปก่อน");return}setTool(b.dataset.tool)});
+$("#btnFit").onclick=()=>world&&fit(world.bbox);
+$("#pgPrev").onclick=()=>{const f=F[cur.file];if(f&&cur.page>1)openFile(cur.file,cur.page-1)};
+$("#pgNext").onclick=()=>{const f=F[cur.file];if(f&&cur.page<f.pages)openFile(cur.file,cur.page+1)};
+$("#scaleSel").onchange=e=>{const v=e.target.value;if(!v)return;const n=+v.split(":")[1];const f=F[cur.file];
+  const per=f.kind==="pdf"?0.0254/72:null; if(!per){toast("รูปภาพไม่มีขนาดกระดาษจริง ใช้ “ตั้งสเกล” จากระยะที่รู้ค่าแทน");e.target.value="";return}
+  P.calib[cur.file+"#"+cur.page]=per*n;P.calib[cur.file+"#"+cur.page+"#lbl"]=`${v} (ขนาดกระดาษจริง)`;recalcManual();save();hud();toast(`ตั้งมาตราส่วน ${v} แล้ว`)};
+$("#unitSel").onchange=e=>{const f=F[cur.file];P.calib[cur.file+"#u"]=+e.target.value;if(f.cadDb){const r=cadAnalyze(cur.file,f.cadDb,+e.target.value);f.dxf=r.disp;regAuto(cur.file,r.takeoffs);autoBuild([cur.file]);draw()}else{f.dxf.unit=+e.target.value;regAuto(cur.file,dxfTakeoffs(cur.file,f.dxf))}save();renderTO();renderBOQ();hud()};
+$("#btnTextCount").onclick=async()=>{
+  const q=$("#textQ").value.trim();const f=F[cur.file];if(!q||!f)return;let pts=[];
+  if(f.kind==="dxf"){for(const e of f.dxf.ents)if(e.txt&&e.txt.trim()===q)pts.push([e.cx,e.cy])}
+  else {const pg=await f.pdf.getPage(cur.page);const vp=pg.getViewport({scale:1});const tc=await pg.getTextContent();
+    for(const it of tc.items){const s=(it.str||"").trim();if(!s)continue;const re=new RegExp(`(^|[^A-Za-z0-9])${q.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")}($|[^A-Za-z0-9])`);if(s===q||re.test(s)){const [x,y]=vp.convertToViewportPoint(it.transform[4],it.transform[5]);pts.push([x,y-(it.height||6)/2])}}}
+  if(!pts.length){toast(`ไม่พบข้อความ “${q}” ในหน้านี้`);return}
+  const t={id:"t-"+uid(),file:cur.file,kind:"text",mtype:"count",label:`ข้อความ “${q}”`,qty:pts.length,unit:"จุด",refs:{page:cur.page,pts},src:`${cur.file}${f.kind==="pdf"?" · หน้า "+cur.page:""} · ค้นข้อความ “${q}” พบ ${pts.length} ตำแหน่ง`};
+  P.takeoffs.push(t);sel=t.id;save();renderTO();draw();hud();
+};
+
+/* pointer: pan / pinch / tap */
+const ptrs=new Map(); let moved=false, pinch0=null;
+stage.addEventListener("pointerdown",e=>{if(!world)return;stage.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY,x0:e.clientX,y0:e.clientY});moved=false;if(ptrs.size===2){const [a,b]=[...ptrs.values()];pinch0={d:Math.hypot(a.x-b.x,a.y-b.y),s:V.s,tx:V.tx,ty:V.ty,cx:(a.x+b.x)/2,cy:(a.y+b.y)/2}}});
+stage.addEventListener("pointermove",e=>{const p=ptrs.get(e.pointerId);if(!p)return;const dx=e.clientX-p.x,dy=e.clientY-p.y;p.x=e.clientX;p.y=e.clientY;if(Math.hypot(p.x-p.x0,p.y-p.y0)>5)moved=true;
+  if(ptrs.size===2&&pinch0){const [a,b]=[...ptrs.values()];const r=stage.getBoundingClientRect();const k=Math.hypot(a.x-b.x,a.y-b.y)/pinch0.d;const cx=pinch0.cx-r.left,cy=pinch0.cy-r.top;V.s=pinch0.s*k;V.tx=cx-(cx-pinch0.tx)*k;V.ty=cy-(cy-pinch0.ty)*k;draw();return}
+  if(moved&&draft&&draft.mtype==="sym"&&ptrs.size===1){const r=stage.getBoundingClientRect();draft.box=[...S2W(p.x0-r.left,p.y0-r.top),...S2W(p.x-r.left,p.y-r.top)];draw();return}
+  if(moved){V.tx+=dx;V.ty+=dy;draw()}});
+const up=e=>{const p=ptrs.get(e.pointerId);ptrs.delete(e.pointerId);if(ptrs.size<2)pinch0=null;
+  if(p&&draft&&draft.mtype==="sym"&&ptrs.size===0){const r=stage.getBoundingClientRect();let b=draft.box;draft.box=null;
+    if(!moved||!b){const [x,y]=S2W(e.clientX-r.left,e.clientY-r.top);const h=10/V.s;b=[x-h,y-h,x+h,y+h]}draw();symPickBox(b);return}
+  if(p&&!moved&&draft&&ptrs.size===0){const r=stage.getBoundingClientRect();const w=S2W(e.clientX-r.left,e.clientY-r.top);if(draft.mtype==="cal"&&draft.pts.length>=2)draft.pts=[];draft.pts.push(w);draw();hud();if(draft.mtype==="cal"&&draft.pts.length===2)$("#calLen")?.focus()}};
+stage.addEventListener("pointerup",up);stage.addEventListener("pointercancel",up);
+stage.addEventListener("wheel",e=>{if(!world)return;e.preventDefault();const r=stage.getBoundingClientRect();const k=Math.exp(-e.deltaY*0.0015);const cx=e.clientX-r.left,cy=e.clientY-r.top;V.tx=cx-(cx-V.tx)*k;V.ty=cy-(cy-V.ty)*k;V.s*=k;draw()},{passive:false});
+stage.addEventListener("dblclick",()=>{if(draft&&draft.mtype!=="cal"&&draft.pts.length)commitDraft()});
+
+/* ======== LISTS ======== */
+function renderFiles(){
+  const ul=$("#fileList");
+  ul.innerHTML=P.files.map(f=>`<li data-n="${esc(f.name)}" aria-current="${f.name===cur.file}"><span class="kind">${esc(f.kind)}</span><span class="nm">${esc(f.name)}</span>${F[f.name]?"":`<span class="muted" style="font-size:11px">ต้องเปิดใหม่</span>`}<button class="btn sm" data-del="${esc(f.name)}" aria-label="เอาไฟล์ออก">×</button></li>`).join("");
+  ul.querySelectorAll("li").forEach(li=>li.onclick=e=>{if(e.target.dataset.del!=null){const n=e.target.dataset.del;P.files=P.files.filter(x=>x.name!==n);P.takeoffs=P.takeoffs.filter(t=>t.file!==n);const ids=new Set(P.takeoffs.map(t=>t.id));P.boq.forEach(r=>r.tids=r.tids.filter(i=>ids.has(i)));delete F[n];if(cur.file===n){cur={file:null,page:1};world=null;$("#empty").hidden=false;$("#empty").textContent="เลือกไฟล์แบบทางซ้าย";$("#tview").hidden=true}save();renderFiles();renderTO();renderBOQ();draw();return}openFile(li.dataset.n,1)});
+}
+function renderTO(){
+  const q=$("#toFilter").value.trim().toLowerCase();const mo=mepOn();const sf=P.auto?.sysFilter||"";
+  const byQ=P.takeoffs.filter(t=>!q||(t.label+" "+t.src).toLowerCase().includes(q));
+  let nNon=0,nUnk=0;const cnt={};
+  let list=byQ.filter(t=>{if(!mo)return true;const s=sysOf(t);if(s==="non"){nNon++;return false}if(!s){nUnk++;if(P.auto?.hideUnk)return false}if(s&&s!=="user")cnt[s]=(cnt[s]||0)+1;return !sf||s===sf||s==="user"});
+  if(mo)list=list.map((t,i)=>[t,i]).sort((a,b)=>(!sysOf(a[0]))-(!sysOf(b[0]))||a[1]-b[1]).map(a=>a[0]);
+  $("#toCount").textContent=P.takeoffs.length?`${list.length}/${P.takeoffs.length}`:"";
+  $("#sysChips").hidden=!mo;$("#mepNote").hidden=!mo;
+  if(mo){$("#sysChips").innerHTML=[["","งานระบบทั้งหมด"],...MEP_CATS.map(c=>[c,`${SYS_SHORT[c]} ${cnt[c]||0}`])].map(([c,l])=>`<button type="button" data-sys="${esc(c)}" aria-pressed="${c===sf}">${esc(l)}</button>`).join("");
+    $("#sysChips").querySelectorAll("button").forEach(b=>b.onclick=()=>{P.auto.sysFilter=b.dataset.sys;save();renderTO()});
+    $("#mepNote").innerHTML=`<span>ไม่ถอดงานโครงสร้าง/สถาปัตย์ ${nNon} รายการ</span>${nUnk?`<label><input type="checkbox" id="hideUnk"${P.auto?.hideUnk?" checked":""}> ซ่อนที่ระบุระบบไม่ได้ (${nUnk})</label>`:""}`;
+    if($("#hideUnk"))$("#hideUnk").onchange=e=>{P.auto.hideUnk=e.target.checked;save();renderTO()}}
+  const used=new Set(P.boq.flatMap(r=>r.tids||[]));
+  $("#toList").innerHTML=list.length?list.slice(0,600).map(t=>{const s=mo?sysOf(t):"";return `<li data-id="${esc(t.id)}" aria-current="${t.id===sel}" class="${mo&&!s?"unk":""}"><span class="mt ${t.mtype}">${MT[t.mtype]}</span><span class="t">${mo&&s!=="user"?`<span class="sysb" title="${esc(s||"ระบุระบบไม่ได้ ตรวจกับแบบ")}">${esc(SYS_SHORT[s]||"?")}</span>`:""}${used.has(t.id)?"✓ ":""}${esc(t.label)}</span><span class="q num">${fmt(t.qty,t.mtype==="count"||t.unit==="ชิ้น"?0:2)} ${esc(t.unit)}</span><span class="src">${esc(t.src)}</span></li>`}).join(""):`<li style="cursor:default"><span></span><span class="muted" style="grid-column:2/4">${mo&&byQ.length?"ไม่มีรายการงานระบบในไฟล์นี้ — ปิด “เฉพาะงานระบบ” ด้านบนเพื่อดูทุกหมวด":"ยังไม่มีรายการ — เปิดไฟล์ DXF/IFC/CSV จะถอดให้อัตโนมัติ ส่วน PDF/รูปใช้เครื่องมือวัด"}</span></li>`;
+  $("#toList").querySelectorAll("li[data-id]").forEach(li=>li.onclick=()=>locate(li.dataset.id));
+}
+$("#toFilter").oninput=renderTO;
+async function locate(id){
+  const t=P.takeoffs.find(x=>x.id===id);if(!t)return; sel=id; showTab("draw");
+  const page=t.refs.page||1;
+  if(cur.file!==t.file||cur.page!==page)await openFile(t.file,page);
+  if(!F[t.file]){renderTO();hud();return}
+  const f=F[t.file];
+  if(f.kind==="table"||f.kind==="ifc"){renderTableView()}
+  else{let bb=[Infinity,Infinity,-Infinity,-Infinity];const ext=(x,y)=>{bb=[Math.min(bb[0],x),Math.min(bb[1],y),Math.max(bb[2],x),Math.max(bb[3],y)]};
+    if(t.refs.handles){const H=new Set(t.refs.handles);for(const e of f.dxf.ents)if(H.has(e.h)){if(e.pts)e.pts.forEach(p=>ext(p[0],p[1]));else{ext(e.cx-(e.r||0),e.cy-(e.r||0));ext(e.cx+(e.r||0),e.cy+(e.r||0))}}}
+    else if(t.refs.type==="vec"){(F[t.file].vec?.[page]?.segs[t.refs.gk]||[]).forEach(s=>{ext(s[0],s[1]);ext(s[2],s[3])})}
+    else (t.refs.pts||[]).forEach(p=>ext(p[0],p[1]));
+    if(isFinite(bb[0])){const pad=Math.max(bb[2]-bb[0],bb[3]-bb[1])*.15||((world.bbox[2]-world.bbox[0])*.05);fit([bb[0]-pad,bb[1]-pad,bb[2]+pad,bb[3]+pad])}}
+  renderTO();draw();hud();
+  if(innerWidth<860)stage.scrollIntoView({behavior:"smooth",block:"start"});
+}
+
+/* ======== PRICE PICKER ======== */
+function pickPrice(t){
+  const scrim=document.createElement("div");scrim.className="scrim";
+  scrim.innerHTML=`<div class="sheetm" role="dialog" aria-modal="true" aria-labelledby="pkT"><h3 id="pkT">จับคู่ราคากลาง</h3><div class="muted" style="font-size:12.5px">${esc(t.label)} · <span class="num">${fmt(t.qty,2)} ${esc(t.unit)}</span></div>
+  <div class="row" style="margin-top:8px"><input id="pkQ" placeholder="ค้นหา เช่น PVC 1/2, DB12, downlight" style="flex:1;min-width:0;border:1px solid var(--rule);background:var(--sheet);color:var(--ink);padding:7px 9px;border-radius:5px"><button class="btn" id="pkNone">ไม่ใช้ราคากลาง</button><button class="btn" id="pkX">ปิด</button></div>
+  <div class="list" id="pkL"></div></div>`;
+  document.body.appendChild(scrim);
+  const close=()=>scrim.remove(); scrim.onclick=e=>{if(e.target===scrim)close()}; $("#pkX").onclick=close;
+  const unitHint=t.unit;
+  const drawList=()=>{const q=$("#pkQ").value.trim().toLowerCase();const words=q.split(/\s+/).filter(Boolean);
+    const ts=sysOf(t);const L=catalog.filter(p=>catOK(p.cat)&&words.every(w=>(p.name+" "+p.code+" "+p.cat).toLowerCase().includes(w))).sort((a,b)=>(b.cat===ts)-(a.cat===ts)||(b.unit===unitHint)-(a.unit===unitHint)).slice(0,200);
+    $("#pkL").innerHTML=L.length?L.map(p=>`<button data-c="${esc(p.code)}"><span>${esc(p.name)} <span class="muted">· ${esc(p.unit)}</span></span><span class="num">${p.mat!=null?fmt(p.mat):"—"} / ${p.lab!=null?fmt(p.lab):p.labPct!=null?p.labPct+"%":"—"}</span><small>${esc(p.cat)} · วัสดุ: ${esc(p.matSrc||"ไม่มีราคาอ้างอิง")} · แรง: ${esc(p.labSrc||"—")}</small></button>`).join(""):`<div class="muted" style="padding:12px">${catalog.length?"ไม่พบรายการ ลองคำอื่น หรือกด “ไม่ใช้ราคากลาง” แล้วใส่ราคาเอง":"บัญชีราคายังไม่พร้อมในมุมมองนี้ กด “ไม่ใช้ราคากลาง” แล้วใส่ราคาเองได้"}</div>`;
+    $("#pkL").querySelectorAll("button").forEach(b=>b.onclick=()=>{addRow(t,priceBy(b.dataset.c));close()})};
+  $("#pkQ").oninput=drawList; $("#pkNone").onclick=()=>{addRow(t,null);close()};
+  const guess=t.block||t.layer||"";$("#pkQ").value="";drawList();setTimeout(()=>$("#pkQ").focus(),30);
+}
+function addRow(t,p){
+  const r={id:uid(),cat:p?p.cat:guessCat(t),desc:p?p.name:t.label,unit:p?p.unit:t.unit,tids:t?[t.id]:[],mult:1,waste:0,qtyManual:0,
+    mat:p&&p.mat!=null?p.mat:0,lab:p&&p.lab!=null?p.lab:0,labPct:p&&p.lab==null&&p.labPct!=null?p.labPct:null,pcode:p?p.code:null,psrc:p?{mat:p.matSrc||"",lab:p.labSrc||(p.labPct!=null?`ว480 หมายเหตุท้ายบัญชี: ค่าแรง ${p.labPct}% ของค่าวัสดุ`:""),asOf:p.asOf||""}:null};
+  P.boq.push(r);save();renderBOQ();renderTO();toast("เพิ่มลง BOQ แล้ว");
+}
+function guessCat(t){const s0=sysOf(t);if(MEP_CATS.includes(s0))return s0;const s=(t.label+" "+(t.layer||"")).toUpperCase();const c=n=>CATS.find(x=>x.includes(n));
+  if(/(^|[^A-Z])(F|FP|FA)-|FIRE|SPRINK|SPK|FHC|HYDRANT|FIRESUPPRESSION/.test(s))return c("ดับเพลิง");
+  if(/(^|[^A-Z])E-|LIGHT|ELEC|POWER|LIGHTFIXTURE|OUTLET|CABLE|CONDUIT|SWITCHING|DISTRIBUTIONBOARD/.test(s))return c("ไฟฟ้า");
+  if(/(^|[^A-Z])M-|HVAC|DUCT|AC-|AIRTERMINAL|UNITARY|FAN|CHILLER|COIL|CU-/.test(s))return c("ปรับอากาศ");
+  if(/(^|[^A-Z])P-|PIPE|PLUMB|SANIT|PVC|VALVE|PUMP|TANK/.test(s))return c("สุขาภิบาล");
+  if(mepOn())return OTHER_CAT;
+  if(/(^|[^A-Z])S-|COL|BEAM|SLAB|FOOT|PILE/.test(s))return c("โครงสร้าง");return c("สถาปัตยกรรม")}
+
+/* ======== BOQ ======== */
+function rowQty(r){const base=(r.tids&&r.tids.length)?r.tids.reduce((s,id)=>s+(P.takeoffs.find(t=>t.id===id)?.qty||0),0)*(+r.mult||0):(+r.qtyManual||0);return base*(1+(+r.waste||0)/100)}
+function daysOld(d){if(!d)return null;const t=Date.parse(d);return isFinite(t)?Math.floor((Date.now()-t)/864e5):null}
+function renderBOQ(){
+  $("#boqTitle").textContent=P.name;
+  const tb=$("#boqB");let html="",n=0,TM=0,TL=0;
+  const newer=[];
+  for(const c of CATS){const rows=P.boq.filter(r=>r.cat===c);if(!rows.length)continue;
+    html+=`<tr class="cat"><td colspan="14">${esc(c)}</td></tr>`;let sm=0,sl=0;
+    for(const r of rows){n++;const q=rowQty(r);const am=q*(+r.mat||0),al=q*rowLab(r);sm+=am;sl+=al;
+      const linked=r.tids&&r.tids.length;
+      const chips=linked?r.tids.map(id=>{const t=P.takeoffs.find(x=>x.id===id);return t?`<span class="chip src" data-loc="${esc(id)}" title="${esc(t.src)}">${esc(t.label)}</span>`:""}).join(""):`<span class="muted" style="font-size:11px">ใส่จำนวนเอง</span>`;
+      const p=r.pcode&&priceBy(r.pcode); let ps="";
+      if(r.psrc){const od=daysOld(r.psrc.asOf);ps=`<div class="psrc">${esc(r.psrc.mat||"")}${r.psrc.lab?"<br>"+esc(r.psrc.lab):""}<br>ณ ${esc(r.psrc.asOf||"-")}${od!=null&&od>60?` <span class="stale">เก่า ${od} วัน</span>`:""}</div>`}
+      else ps=`<div class="psrc">ราคาใส่เอง</div>`;
+      if(p&&((p.mat??0)!==(+r.mat)||(p.labPct==null&&(p.lab??0)!==(+r.lab)))&&p.asOf>(r.psrc?.asOf||"")){ps+=`<div class="psrc newer">มีราคาใหม่ ${esc(p.asOf)}</div>`;newer.push(r)}
+      html+=`<tr data-r="${r.id}"><td class="r num">${n}</td>
+        <td><input data-f="desc" value="${esc(r.desc)}" aria-label="รายการ"><select data-f="cat" aria-label="หมวด" style="font-size:11px;color:var(--ink-2)">${CATS.filter(x=>catOK(x)||x===r.cat).map(x=>`<option${x===r.cat?" selected":""}>${x}</option>`).join("")}</select>${r.auto?`<div class="psrc"><span class="cf cf${r.conf}">${["ไม่มีราคา","ต้องตรวจ","ควรตรวจ","มั่นใจ"][r.conf]}</span> ${esc(r.note||"")}</div>`:""}</td>
+        <td>${chips}</td>
+        <td><input class="n" data-f="mult" value="${linked?r.mult:""}" ${linked?"":"disabled"} inputmode="decimal" aria-label="ตัวคูณ" title="เช่น ความยาวผนัง × ความสูง หรือ ความยาวเหล็ก × น้ำหนัก กก./ม."></td>
+        <td><input class="n" data-f="waste" value="${r.waste}" inputmode="decimal" aria-label="เผื่อเปอร์เซ็นต์"></td>
+        <td>${linked?`<div class="r num" style="padding:3px 4px">${fmt(q)}</div>`:`<input class="n" data-f="qtyManual" value="${r.qtyManual}" inputmode="decimal" aria-label="จำนวน">`}</td>
+        <td><input data-f="unit" value="${esc(r.unit)}" aria-label="หน่วย"></td>
+        <td><input class="n${!(+r.mat)&&!rowLab(r)?" need":""}" data-f="mat" value="${r.mat}" inputmode="decimal" aria-label="ค่าวัสดุต่อหน่วย"></td><td class="r num">${fmt(am)}</td>
+        <td><input class="n" data-f="lab" value="${r.labPct!=null?r.labPct+"%":r.lab}" title="ใส่ตัวเลข หรือใส่เป็น % ของค่าวัสดุ เช่น 30%" aria-label="ค่าแรงต่อหน่วย หรือเปอร์เซ็นต์ของค่าวัสดุ">${r.labPct!=null?`<div class="psrc" style="text-align:right">${fmt(rowLab(r))}</div>`:""}</td><td class="r num">${fmt(al)}</td>
+        <td class="r num"><b>${fmt(am+al)}</b></td><td>${ps}</td>
+        <td><button class="btn sm" data-del="${r.id}" aria-label="ลบรายการ">×</button></td></tr>`;}
+    html+=`<tr class="sub"><td></td><td colspan="7">รวม${esc(c)}</td><td class="r num">${fmt(sm)}</td><td></td><td class="r num">${fmt(sl)}</td><td class="r num">${fmt(sm+sl)}</td><td colspan="2"></td></tr>`;TM+=sm;TL+=sl}
+  tb.innerHTML=html||`<tr><td colspan="14" style="padding:24px;text-align:center" class="muted">ยังไม่มีรายการใน BOQ — ไปที่แท็บ “แบบ &amp; ถอดปริมาณ” เลือกรายการแล้วกด “เพิ่มลง BOQ”</td></tr>`;
+  const cost=TM+TL, F_=+P.factorF||1, grand=cost*F_*(P.vat?1.07:1);
+  $("#tMat").textContent=fmt(TM);$("#tLab").textContent=fmt(TL);$("#tCost").textContent=fmt(cost);$("#tGrand").textContent=fmt(grand);$("#tWords").textContent=bahtText(grand);
+  $("#autoBanner").innerHTML=autoBanner();
+  $("#newerBanner").innerHTML=newer.length?`<div class="banner"><b>บัญชีราคามีการอัปเดต</b> ${newer.length} รายการใน BOQ ใช้ราคาเก่ากว่าบัญชีปัจจุบัน <button class="btn sm mark" id="btnRefresh">ใช้ราคาล่าสุดทั้งหมด</button></div>`:"";
+  if(newer.length)$("#btnRefresh").onclick=()=>{for(const r of newer){const p=priceBy(r.pcode);if(p.mat!=null)r.mat=p.mat;if(p.lab!=null)r.lab=p.lab;r.psrc={mat:p.matSrc||"",lab:p.labSrc||"",asOf:p.asOf||""}}save();renderBOQ();toast("อัปเดตราคาแล้ว")};
+  tb.querySelectorAll("input,select").forEach(i=>i.onchange=()=>{const r=P.boq.find(x=>x.id===i.closest("tr").dataset.r);const f=i.dataset.f;
+    if(f==="lab"&&/%\s*$/.test(i.value)){r.labPct=parseFloat(i.value)||0;r.psrc=r.psrc||{mat:"",lab:"",asOf:""};r.psrc.lab=`ค่าแรง ${r.labPct}% ของค่าวัสดุ`;save();renderBOQ();return}
+    if(f==="lab")r.labPct=null;
+    r[f]=["desc","unit","cat"].includes(f)?i.value:(parseFloat(i.value.replace(/,/g,""))||0);if(f==="mat"||f==="lab"){r.psrc=r.psrc||{mat:"",lab:"",asOf:""};r.psrc[f]="แก้ไขเอง";}save();renderBOQ()});
+  tb.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{P.boq=P.boq.filter(r=>r.id!==b.dataset.del);save();renderBOQ();renderTO()});
+  tb.querySelectorAll("[data-loc]").forEach(c=>c.onclick=()=>locate(c.dataset.loc));
+}
+$("#btnAddRow").onclick=()=>{P.boq.push({id:uid(),cat:CATS[CATS.length-1],desc:"รายการใหม่",unit:"ชุด",tids:[],mult:1,waste:0,qtyManual:1,mat:0,lab:0,pcode:null,psrc:null});save();renderBOQ()};
+$("#factorF").onchange=e=>{P.factorF=parseFloat(e.target.value)||1;e.target.value=P.factorF.toFixed(4);save();renderBOQ()};
+$("#vatChk").onchange=e=>{P.vat=e.target.checked;save();renderBOQ()};
+$("#projName").onchange=e=>{P.name=e.target.value.trim()||"โครงการใหม่";save();renderBOQ()};
+function boqMatrix(){
+  const rows=[["ลำดับ","หมวด","รายการ","จำนวน","หน่วย","ค่าวัสดุ/หน่วย","ค่าวัสดุรวม","ค่าแรง/หน่วย","ค่าแรงรวม","รวม","ที่มาปริมาณ","ที่มาราคา"]];let n=0,tot=0;
+  for(const c of CATS)for(const r of P.boq.filter(x=>x.cat===c)){n++;const q=rowQty(r);const am=q*r.mat,al=q*rowLab(r);tot+=am+al;
+    const src=(r.tids||[]).map(id=>P.takeoffs.find(t=>t.id===id)?.src).filter(Boolean).join(" | ")+(r.tids?.length&&(r.mult!=1||r.waste)?` (×${r.mult}${r.waste?`, เผื่อ ${r.waste}%`:""})`:"");
+    rows.push([n,c,r.desc,q.toFixed(2),r.unit,(+r.mat).toFixed(2),am.toFixed(2),(r.labPct!=null?r.labPct+"% วัสดุ":rowLab(r).toFixed(2)),al.toFixed(2),(am+al).toFixed(2),src||"ใส่เอง",r.psrc?[r.psrc.mat,r.psrc.lab,r.psrc.asOf].filter(Boolean).join(" / "):"ใส่เอง"])}
+  rows.push([],["","","ค่างานต้นทุน","","","","","","",tot.toFixed(2)],["","","Factor F "+(+P.factorF).toFixed(4)+(P.vat?" + VAT 7%":""),"","","","","","",(tot*(+P.factorF||1)*(P.vat?1.07:1)).toFixed(2)]);
+  return rows;
+}
+$("#btnCopy").onclick=async()=>{const t=boqMatrix().map(r=>r.join("\t")).join("\n");try{await navigator.clipboard.writeText(t);toast("คัดลอกแล้ว วางใน Excel ได้เลย")}catch(e){const ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();toast("กด Ctrl/⌘+C เพื่อคัดลอก");setTimeout(()=>ta.remove(),8000)}};
+let downloads=null;
+$("#btnCsv").onclick=async()=>{const csv="﻿"+boqMatrix().map(r=>r.map(c=>{c=String(c??"");return /[",\n]/.test(c)?`"${c.replace(/"/g,'""')}"`:c}).join(",")).join("\r\n");
+  saveFile(`BOQ-${safeName()}.csv`,new Blob([csv],{type:"text/csv"}))};
+const safeName=()=>(P.name||"project").replace(/[^\w\u0E00-\u0E7F-]+/g,"_");
+async function saveFile(filename,blob){
+  if(downloads){try{await downloads.save({filename,data:blob});toast("บันทึกไฟล์แล้ว")}catch(e){if(e&&e.code!=="declined")toast("บันทึกไฟล์ไม่สำเร็จ: "+(e.message||e.code))}return}
+  if(OFFLINE){const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=filename;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000);toast("บันทึกไฟล์ลงโฟลเดอร์ Downloads แล้ว");return}
+  toast("มุมมองนี้บันทึกไฟล์ไม่ได้ ใช้ “คัดลอกไปวาง Excel” แทน")}
+$("#btnSaveProj").onclick=()=>saveFile(`${safeName()}.qto.json`,new Blob([JSON.stringify({app:"qto-boq",version:1,savedAt:new Date().toISOString(),project:P},null,1)],{type:"application/json"}));
+$("#btnOpenProj").onclick=()=>$("#projIn").click();
+$("#projIn").onchange=async e=>{const f=e.target.files[0];e.target.value="";if(!f)return;try{const j=JSON.parse(await f.text());const np=j.project||j;if(!Array.isArray(np.boq)||!Array.isArray(np.takeoffs))throw new Error("ไม่ใช่ไฟล์โครงการของโปรแกรมนี้");
+  P=Object.assign(blank(),np);for(const k in F)delete F[k];cur={file:null,page:1};sel=null;world=null;$("#projName").value=P.name;$("#factorF").value=(+P.factorF||1).toFixed(4);$("#vatChk").checked=!!P.vat;save();renderFiles();renderTO();renderBOQ();draw();
+  $("#empty").hidden=false;$("#empty").textContent="เปิดโครงการแล้ว · เปิดไฟล์แบบเดิมอีกครั้งเพื่อดูตำแหน่งที่ถอดปริมาณ";toast(`เปิด “${P.name}” แล้ว`)}catch(err){toast("เปิดไฟล์ไม่ได้: "+err.message)}};
+$("#btnExportPB").onclick=()=>saveFile(`บัญชีราคา-${(catMeta?.checkedAt||new Date().toISOString().slice(0,10))}.json`,new Blob([JSON.stringify({app:"qto-boq-prices",meta:catMeta,prices:catalog},null,1)],{type:"application/json"}));
+$("#btnImportPB").onclick=()=>$("#pbIn").click();
+$("#pbIn").onchange=async e=>{const f=e.target.files[0];e.target.value="";if(!f)return;try{const j=JSON.parse(await f.text());if(!Array.isArray(j.prices))throw new Error("ไม่ใช่ไฟล์บัญชีราคา");
+  const by=Object.fromEntries(catalog.map(p=>[p.code,p]));for(const p of j.prices)if(p&&p.code)by[p.code]=p;catalog=Object.values(by).sort((a,b)=>String(a.code).localeCompare(String(b.code)));if(j.meta)catMeta=j.meta;
+  localPB.save();renderPB();renderBOQ();toast(`นำเข้า ${j.prices.length} รายการแล้ว`)}catch(err){toast("นำเข้าไม่ได้: "+err.message)}};
+const localPB={key:"qto.prices.v1",save(){try{localStorage.setItem(this.key,JSON.stringify({meta:catMeta,prices:catalog}))}catch(e){}},load(){try{return JSON.parse(localStorage.getItem(this.key)||"null")}catch(e){return null}}};
+
+function bahtText(n){n=Math.round(n*100)/100;if(!n)return"";const D=["","หนึ่ง","สอง","สาม","สี่","ห้า","หก","เจ็ด","แปด","เก้า"],U=["","สิบ","ร้อย","พัน","หมื่น","แสน"];
+  const rd=s=>{let o="";const L=s.length;for(let i=0;i<L;i++){const d=+s[i],p=L-i-1;if(!d)continue;if(p===0&&d===1&&L>1)o+="เอ็ด";else if(p===1&&d===2)o+="ยี่";else if(!(p===1&&d===1))o+=D[d];o+=U[p]}return o};
+  const toW=s=>{const parts=[];while(s.length>6){parts.unshift(s.slice(-6));s=s.slice(0,-6)}parts.unshift(s);return parts.map((p,i)=>rd(p.replace(/^0+/,"")||"")+(i<parts.length-1?"ล้าน":"")).join("")};
+  const [b,s]=n.toFixed(2).split(".");return "("+(toW(b)||"ศูนย์")+"บาท"+(+s?rd(s.replace(/^0/,""))+"สตางค์":"ถ้วน")+")"}
+
+/* ======== PRICE BOOK UI ======== */
+function renderPB(){
+  const q=$("#pbQ").value.trim().toLowerCase();const w=q.split(/\s+/).filter(Boolean);
+  const L=catalog.filter(p=>w.every(x=>(p.name+" "+p.code+" "+p.cat).toLowerCase().includes(x)));
+  let html="";for(const c of CATS.filter(catOK)){const rs=L.filter(p=>p.cat===c);if(!rs.length)continue;html+=`<tr><td colspan="7" style="background:var(--teal-soft);font-family:var(--f-display);font-weight:600">${c}</td></tr>`;
+    for(const p of rs){const od=daysOld(p.asOf);html+=`<tr><td class="num muted" style="font-size:11px">${esc(p.code)}</td><td>${esc(p.name)}${p.note?`<div class="muted" style="font-size:11px">${esc(p.note)}</div>`:""}</td><td>${esc(p.unit)}</td><td class="r num">${p.mat!=null?fmt(p.mat):"—"}</td><td class="r num">${p.lab!=null?fmt(p.lab):p.labPct!=null?p.labPct+"% ของวัสดุ":"—"}</td><td style="font-size:11.5px">${p.matSrc?"วัสดุ: "+esc(p.matSrc)+"<br>":""}${p.labSrc?"แรง: "+esc(p.labSrc):""}</td><td class="num" style="font-size:11.5px">${esc(p.asOf||"")}${od!=null&&od>60?`<br><span style="color:var(--warn)">เก่า ${od} วัน</span>`:""}</td></tr>`}}
+  $("#pbB").innerHTML=html||`<tr><td colspan="7" class="muted" style="padding:16px">${db||OFFLINE?"ยังไม่มีราคาในบัญชี":"เปิดบัญชีราคาร่วมไม่ได้ในมุมมองนี้ (ต้องลงชื่อเข้าใช้ claude.ai) — ใน BOQ ยังใส่ราคาเองได้ตามปกติ"}</td></tr>`;
+  const m=catMeta;
+  $("#pbMeta").innerHTML=(mepOn()?`<b>แสดงเฉพาะหมวดงานระบบ</b> (ไฟฟ้า สุขาภิบาล ดับเพลิง ปรับอากาศ) · ปิด “เฉพาะงานระบบ” ด้านบนเพื่อดูทุกหมวด<br>`:"")+(OFFLINE?(priceUrl()?`<b>อัปเดตราคาอัตโนมัติ</b> ทุกครั้งที่เปิดโปรแกรม (เมื่อต่อเน็ต) จาก <span class="num">${esc(priceUrl())}</span> · ไม่มีเน็ตใช้ราคาชุดล่าสุดในเครื่อง<br>`:`<b>ใช้ราคาในเครื่อง</b> · ตั้งลิงก์บัญชีราคาออนไลน์ได้ที่ปุ่ม “แหล่งราคาออนไลน์” หรือนำเข้าไฟล์ด้วย “นำเข้าบัญชีราคา”<br>`):"")+(m?`ตรวจราคาล่าสุด <b class="num">${esc(m.checkedAt||"-")}</b> · ${esc(m.region||"")} · ${esc(m.summary||"")}${m.next?` · รอบถัดไป ${esc(m.next)}`:""}<br><span class="muted">ราคาวัสดุไม่รวม VAT ใช้ทำราคากลางจริงให้ตรวจกับพาณิชย์จังหวัดของพื้นที่ก่อสร้างตามหลักเกณฑ์กรมบัญชีกลาง</span>`:(db?"บัญชีราคายังว่าง":""));
+}
+$("#pbQ").oninput=renderPB;
+$("#pa-cat").innerHTML=CATS.map(c=>`<option>${c}</option>`).join("");
+$("#pbAdd").onsubmit=async e=>{e.preventDefault();if(!db&&!OFFLINE)return;const num=v=>{const n=parseFloat(v.replace(/,/g,""));return isFinite(n)?n:null};
+  const code="USR-"+uid().toUpperCase();const d={code,cat:$("#pa-cat").value,name:$("#pa-name").value.trim(),unit:$("#pa-unit").value.trim(),mat:num($("#pa-mat").value),lab:num($("#pa-lab").value),matSrc:$("#pa-src").value.trim(),labSrc:$("#pa-src").value.trim(),asOf:new Date().toISOString().slice(0,10),note:"เพิ่มโดยผู้ใช้"};
+  if(OFFLINE){catalog.push(d);localPB.save();e.target.reset();renderPB();toast("บันทึกราคาแล้ว");return}
+  try{await db.collection("prices").doc(code).set(d);e.target.reset();toast("บันทึกราคาแล้ว")}catch(err){toast("บันทึกไม่สำเร็จ: "+(err.message||err.code))}};
+
+/* ======== TABS ======== */
+function showTab(t){$$("nav.tabs button").forEach(b=>b.setAttribute("aria-selected",String(b.dataset.tab===t)));$("#sec-draw").hidden=t!=="draw";$("#sec-boq").hidden=t!=="boq";$("#sec-price").hidden=t!=="price";$("#sec-rule").hidden=t!=="rule";if(t==="rule")renderRules();if(t==="draw")requestAnimationFrame(resize);if(t==="boq")renderBOQ();if(t==="price")renderPB();if(location.hash!=="#"+t)history.replaceState(null,"","#"+t)}
+$$("nav.tabs button").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+addEventListener("hashchange",()=>{const h=location.hash.slice(1);if(["draw","boq","price","rule"].includes(h))showTab(h)});
+
+/* ======== FILE INPUT ======== */
+$("#fileIn").onchange=e=>{intake([...e.target.files]);e.target.value=""};
+const drop=$("#drop");["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over")}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over")}));
+drop.addEventListener("drop",e=>intake([...e.dataTransfer.files]));
+
+/* ======== SAMPLE DRAWING ======== */
+function sampleDXF(){
+  let h=0x100;const H=()=>(h++).toString(16).toUpperCase();const o=["0","SECTION","2","HEADER","9","$INSUNITS","70","4","0","ENDSEC","0","SECTION","2","ENTITIES"];
+  const lw=(layer,pts,closed)=>{o.push("0","LWPOLYLINE","5",H(),"8",layer,"90",String(pts.length),"70",closed?"1":"0");for(const [x,y] of pts)o.push("10",String(x),"20",String(y))};
+  const ins=(layer,name,x,y)=>o.push("0","INSERT","5",H(),"8",layer,"2",name,"10",String(x),"20",String(y));
+  const tx=(layer,t,x,y)=>o.push("0","TEXT","5",H(),"8",layer,"10",String(x),"20",String(y),"40","250","1",t);
+  // wall centerlines (mm) 12 x 8 m with partitions
+  lw("A-WALL-CL",[[0,0],[12000,0],[12000,8000],[0,8000]],true);
+  lw("A-WALL-CL",[[5000,0],[5000,8000]],false);lw("A-WALL-CL",[[5000,4500],[12000,4500]],false);lw("A-WALL-CL",[[9000,0],[9000,4500]],false);
+  // rooms
+  lw("A-AREA",[[100,100],[4900,100],[4900,7900],[100,7900]],true);
+  lw("A-AREA",[[5100,4600],[11900,4600],[11900,7900],[5100,7900]],true);
+  lw("A-AREA",[[5100,100],[8900,100],[8900,4400],[5100,4400]],true);
+  lw("A-AREA-WC",[[9100,100],[11900,100],[11900,4400],[9100,4400]],true);
+  tx("A-TEXT","สำนักงาน",1600,4000);tx("A-TEXT","ห้องประชุม",7600,6200);tx("A-TEXT","ห้องเก็บของ",6000,2200);tx("A-TEXT","ห้องน้ำ",9800,2200);
+  // cold water pipe
+  lw("P-CW-PVC12",[[11800,7800],[11800,4700],[10500,4700],[10500,3500],[9600,3500]],false);
+  lw("P-CW-PVC12",[[10500,3500],[10500,1200],[9600,1200]],false);
+  // lights
+  for(const x of [1250,3750])for(const y of [1300,4000,6700])ins("E-LIGHT","DL-LED-12W",x,y);
+  for(const x of [6800,8500,10200])for(const y of [5600,7000])ins("E-LIGHT","DL-LED-12W",x,y);
+  ins("E-LIGHT","DL-LED-12W",7000,2200);ins("E-LIGHT","DL-LED-12W",10500,2200);
+  // AC
+  ins("M-AC","AC-CM-24000",2500,7600);ins("M-AC","AC-CM-18000",8500,7600);
+  // fire protection
+  lw("F-SPK-PIPE-2",[[300,7300],[11700,7300]],false);lw("F-SPK-PIPE-1",[[2500,7300],[2500,1300]],false);lw("F-SPK-PIPE-1",[[7500,7300],[7500,1300]],false);lw("F-SPK-PIPE-1",[[10500,7300],[10500,5200]],false);
+  for(const x of [2500,7500])for(const y of [1300,3300,5300])ins("F-SPK","SPK-PENDENT",x,y);ins("F-SPK","SPK-PENDENT",10500,5200);
+  ins("F-VALVE","GV-2",600,7300);ins("F-VALVE","CV-2",900,7300);ins("F-EQUIP","FHC-TYPE2",300,6900);
+  // electrical conduit & HVAC piping
+  lw("E-CONDUIT-EMT20",[[600,7700],[11500,7700]],false);lw("E-CONDUIT-EMT20",[[1250,7700],[1250,1300]],false);lw("E-CONDUIT-EMT20",[[3750,7700],[3750,1300]],false);
+  ins("E-DEVICE","OUTLET-2P",200,4000);ins("E-DEVICE","OUTLET-2P",4800,2000);ins("E-DEVICE","OUTLET-2P",5200,6000);ins("E-DEVICE","SW-1W",4800,300);ins("E-PANEL","LC-12CCT",200,300);
+  lw("M-CU-PIPE-38-58",[[2500,7600],[2500,7950],[8500,7950],[8500,7600]],false);
+  ins("P-VALVE","BV-12",11800,7600);
+  // toilets
+  ins("P-SAN","WC-01",9600,600);ins("P-SAN","WC-01",9600,1800);ins("P-SAN","LAV-01",11500,3800);
+  o.push("0","ENDSEC","0","EOF");return o.join("\n");
+}
+function loadSample(){
+  const name="ตัวอย่าง-อาคารสำนักงาน.dxf";const d=parseDXF(sampleDXF());F[name]={kind:"dxf",dxf:d};
+  if(!P.files.find(x=>x.name===name))P.files.push({name,kind:"dxf"});
+  regAuto(name,dxfTakeoffs(name,d));
+  if(false){
+    const mk=(k,code,extra)=>({id:uid(),cat:"",desc:"",unit:"",tids:[name+"|"+k],mult:1,waste:0,qtyManual:0,mat:0,lab:0,pcode:code,psrc:null,sample:true,...extra});
+    P.boq=[mk("len|A-WALL-CL","ARC-AAC075",{mult:3,desc:"ก่อผนังอิฐมวลเบา หนา 7.5 ซม. (ยาวผนัง × สูง 3.00 ม.)",cat:CATS[1],unit:"ตร.ม."}),
+      mk("len|A-WALL-CL","ARC-PLS-IN",{mult:6,desc:"ฉาบปูนผนังภายใน 2 ด้าน (ยาว × 3.00 × 2)",cat:CATS[1],unit:"ตร.ม."}),
+      mk("len|P-CW-PVC12","SAN-PVC85-12",{waste:10,desc:"ท่อน้ำดี PVC ชั้น 8.5 ø1/2\"",cat:CATS[3],unit:"ม."}),
+      mk("count|E-LIGHT|DL-LED-12W","ELE-DL46",{desc:"ติดตั้งโคมดาวน์ไลท์ LED 12W",cat:CATS[2],unit:"ชุด"}),
+      mk("count|P-SAN|WC-01","SAN-WC",{desc:"ติดตั้งส้วมนั่งราบชนิดมีหม้อน้ำ",cat:CATS[3],unit:"ชุด"})];
+    P.sample=true;
+  }
+  save();renderFiles();renderTO();renderBOQ();openFile(name,1);autoRun([name]);
+}
+$("#btnSample").onclick=loadSample;
+function fillSampleFromCatalog(){let ch=false;for(const r of P.boq){if(!r.pcode||r.psrc)continue;const p=priceBy(r.pcode);if(!p)continue;if(p.mat!=null)r.mat=p.mat;if(p.lab!=null)r.lab=p.lab;r.psrc={mat:p.matSrc||"",lab:p.labSrc||"",asOf:p.asOf||""};ch=true}if(ch){save();renderBOQ()}}
+
+/* ======== AUTO TAKEOFF: one click ======== */
+const IN_CODE={"1/2":"12","3/4":"34","1":"1","1 1/4":"114","1 1/2":"112","2":"2","2 1/2":"212","3":"3","4":"4","5":"5","6":"6","8":"8","10":"10","12":"12in","3/8":"38","5/8":"58","7/8":"78","1 1/8":"118","1 3/8":"138","1 5/8":"158","2 1/8":"218","2 5/8":"258"};
+const CODE_IN={};for(const k in IN_CODE)CODE_IN[IN_CODE[k]]=k;CODE_IN["12"]="1/2";
+const MM_IN={15:"1/2",20:"3/4",25:"1",32:"1 1/4",40:"1 1/2",50:"2",65:"2 1/2",80:"3",90:"3",100:"4",125:"5",150:"6",200:"8"};
+const IN_MM={"1/2":15,"3/4":20,"1":25,"1 1/4":32,"1 1/2":40,"2":50,"2 1/2":65,"3":80,"4":100,"5":125,"6":150,"8":200};
+const normIn=s=>s.replace(/[-–]/g," ").replace(/\s+/g," ").trim();
+function parseSizes(raw){
+  const s=" "+String(raw||"").toUpperCase().replace(/[ØΦ⌀∅]/g,"ø").replace(/_/g," ")+" ";const o={inch:null,mm:null,btu:null,sqmm:null,pair:null};let m;
+  const t=s.replace(/PVC\s*[-]?\s*(8\.5|13\.5|85|135)\b/g,"PVC ").replace(/(CLASS|CL\.?|ชั้น)\s*(8\.5|13\.5|5|8|13)/g," ");
+  if((m=t.match(/(\d{4,6}|\d{1,2}[,.]\d{3})\s*BTU/))||(m=t.match(/(?:AC|FCU|CDU|SPLIT|CM|DT)[-\s]*[A-Z]*[-\s]?(\d{4,6})(?!\d)/)))o.btu=+m[1].replace(/[,.]/g,"");
+  if((m=t.match(/(\d+(?:\.\d+)?)\s*(?:SQ\.?\s*MM|ตร\.?\s*มม|MM2|MM²)/))||(m=t.match(/(?:THW|IEC\s*01|VAF|NYY|VCT)[-\s]*(?:\d\s*[X×]\s*)?(\d+(?:\.\d+)?)/))||(m=t.match(/\b\d\s*[X×]\s*(\d+(?:\.\d+)?)\s*(?:SQ|ตร|MM)/)))o.sqmm=+m[1];
+  if((m=t.match(/(?:^|[^\d.\/])(\d{1,2}[\s-]\d\/\d|\d\/\d|\d{1,2})\s*(?:"|”|''|IN\b|INCH|นิ้ว)/)))o.inch=normIn(m[1]);
+  if(!o.inch&&(m=t.match(/ø\s*(\d{1,2}[\s-]\d\/\d|\d\/\d|\d{1,3})(?![\d.\/])/))){const v=normIn(m[1]);if(/\//.test(v)||+v<=12)o.inch=v;else o.mm=+v}
+  if(!o.mm&&(m=t.match(/(?:DN|ø)\s*(\d{2,3})\b/)||t.match(/(?:^|[^\d.])(\d{2,3})\s*(?:MM|มม)\b/)))o.mm=+m[1];
+  if(!o.mm&&(m=t.match(/(?:EMT|IMC|RSC|CONDUIT|FLEX)[-\s]*(\d{2,3})(?!\d)/)))o.mm=+m[1];
+  if((m=t.match(/(?:^|[^\d])(38|12|58|34|78|118|138|158|218)\s*[-x×\/&+]\s*(58|34|78|118|138|158|218|258|12)(?!\d)/)))o.pair=[m[1],m[2]];
+  else if((m=t.match(/(\d\/\d|\d[\s-]\d\/\d)"?\s*[&+,x×\/]\s*(\d\/\d|\d[\s-]\d\/\d)"/)))o.pair=[IN_CODE[normIn(m[1])],IN_CODE[normIn(m[2])]].filter(Boolean);
+  if(!o.inch&&!o.mm&&(m=t.match(/(?:^|[^A-Z])(?:PVC|GSP|GI|PPR|HDPE|PB|PIPE|CW|HW|FP|FW|SP|DR|SAN|WW|SW|BS|SCH\s*40|STEEL|CU|CO|FCO|YS|FD)[-\s]*(\d{1,3})(?![\d.\/])/))&&CODE_IN[m[1]])o.inch=CODE_IN[m[1]];
+  return o;
+}
+const has=c=>!!priceBy(c);
+const one=(code,conf=3,extra)=>has(code)?[{code,conf,...extra}]:[];
+function sizeKey(x){const z=x.sz;if(z.inch&&IN_CODE[z.inch])return IN_CODE[z.inch];if(z.mm&&MM_IN[z.mm])return IN_CODE[MM_IN[z.mm]];return null}
+function sized(prefix,x,def){
+  const k=sizeKey(x);const near=x.nearSize?" (ขนาดอ่านจากข้อความใกล้เส้น)":"";
+  if(k&&has(prefix+k))return [{code:prefix+k,conf:x.nearSize?2:3,note:near.trim()}];
+  const alt=(def&&priceBy(prefix+def))||catalog.find(p=>p.code.startsWith(prefix));
+  return alt?[{code:alt.code,conf:1,note:k?`ไม่มีขนาด ${CODE_IN[k]||k}" ในบัญชี ใช้ ${alt.name}`:"ไม่ทราบขนาดจากแบบ ตรวจขนาดท่อ"}]:[];
+}
+function conduit(x){const S=x.S;const T=/IMC/.test(S)?"IMC":/RSC|RIGID/.test(S)?"RSC":/FLEX/.test(S)?"FLEX":/PVC/.test(S)?"PVCC":"EMT";
+  const mm=x.sz.mm||(x.sz.inch?IN_MM[x.sz.inch]:null);const c=`ELE-${T}-${mm}`;
+  if(mm&&has(c))return [{code:c,conf:x.nearSize?2:3}];const alt=priceBy(`ELE-${T}-20`)||catalog.find(p=>p.code.startsWith(`ELE-${T}-`));return alt?[{code:alt.code,conf:1,note:"ไม่ทราบขนาดท่อร้อยสาย"}]:[]}
+function wire(x){if(/VAF/.test(x.S))return one("ELE-VAF225",2);const n=x.sz.sqmm;if(n){const c="ELE-THW"+String(n).replace(".","P");if(has(c))return [{code:c,conf:3}]}
+  return one("ELE-THW2P5",1,{note:"ไม่ทราบขนาดสาย"})}
+function copper(x){const p=x.sz.pair;const out=[];
+  if(p&&p.length===2){for(const k of p){if(has("HVAC-CU-"+k))out.push({code:"HVAC-CU-"+k,conf:3});if(has("HVAC-INS34-"+k))out.push({code:"HVAC-INS34-"+k,conf:3});else if(has("HVAC-INS34-12"))out.push({code:"HVAC-INS34-12",conf:2,note:`ไม่มีฉนวนขนาด ${CODE_IN[k]||k}\" ใช้ขนาด 1/2\"`})}if(out.length)return out}
+  const s=sized("HVAC-CU-",x,"38");const k=s[0]&&s[0].code.replace("HVAC-CU-","");if(k&&has("HVAC-INS34-"+k))s.push({code:"HVAC-INS34-"+k,conf:s[0].conf});return s}
+function acUnit(x){const b=x.sz.btu;const duct=/DUCT|CONCEAL|\bDT\b|\bCDU\b|ท่อลม/.test(x.S);
+  if(!b){if(/FCU|FAN\s*COIL/.test(x.S))return one("HVAC-FCU",2);return one(duct?"HVAC-DT30":"HVAC-CM30",1,{note:"ไม่ทราบขนาด BTU"})}
+  const k=b<=30000?"30":b<=42000?"42":b<=54000?"54":"60";return one((duct?"HVAC-DT":"HVAC-CM")+k,3,{note:`${b.toLocaleString()} BTU/h`})}
+function diffuser(x){const m=x.S.match(/(\d{1,2})\s*["]?\s*[X×]\s*(\d{1,2})/);const c=m?`HVAC-CSD-${m[1]}x${m[2]}`:null;if(c&&has(c))return [{code:c,conf:3}];return one("HVAC-CSD-12x12",1,{note:"ไม่ทราบขนาดหัวจ่ายลม"})}
+function flexduct(x){const k=x.sz.inch;const c=k?"HVAC-FLEX-"+k:null;if(c&&has(c))return [{code:c,conf:3}];return one("HVAC-FLEX-8",1,{note:"ไม่ทราบขนาดท่อลมอ่อน"})}
+function wallRows(x,fromArea){const S=x.S,H=+(P.auto?.wallH)||3;
+  let code="ARC-AAC075",conf=2,mat="อิฐมวลเบา 7.5 ซม. (สมมติ)";
+  if(/BRICK|อิฐมอญ/.test(S)){code="ARC-BRICK-H";conf=3;mat="อิฐมอญครึ่งแผ่น"}else if(/BLOCK|CMU|บล็อก/.test(S)){code="ARC-BLK07";conf=3;mat="คอนกรีตบล็อก"}else if(/AAC|Q-?CON|มวลเบา/.test(S)){code=/10|100/.test(S)?"ARC-AAC100":"ARC-AAC075";conf=3;mat="อิฐมวลเบา"}
+  const m1=fromArea?1:H,m2=fromArea?2:2*H;
+  return [{code,conf,mult:m1,desc:`ก่อผนัง${mat}${fromArea?"":` (ยาวผนัง × สูง ${H} ม.)`}`},{code:"ARC-PLS-IN",conf:2,mult:m2,desc:`ฉาบปูนผนัง 2 ด้าน${fromArea?"":` (ยาว × ${H} × 2)`}`}].filter(r=>has(r.code))}
+const R=(mt,re,fn)=>({mt,re,fn});
+// sized electrical items: pull box (inch WxLxD), cable tray / ladder / wireway (mm)
+const nearCode=(pre,want,list)=>{const ok=list.filter(k=>has(pre+k));if(!ok.length)return null;const sc=k=>{const a=String(k).split("x").map(Number),b=String(want).split("x").map(Number);let d=0;for(let i=0;i<a.length;i++){const v=(a[i]||0)-(b[i]||0);d+=v<0?1e6:v}return d};return ok.sort((x,y)=>sc(x)-sc(y))[0]};
+// rectangular duct drawn as a run: sheet area = perimeter x length (sq.ft per metre = perimeter(m) x 10.764)
+function duct(x){const S=x.S;let w=0,h=0;let m=S.match(/(\d{2,4})\s*(?:MM|มม\.?)?\s*[X×]\s*(\d{2,4})/);if(m){w=+m[1];h=+m[2]}else{m=S.match(/(\d{1,3})\s*"\s*[X×]\s*(\d{1,3})\s*"?/);if(m){w=+m[1]*25.4;h=+m[2]*25.4}}
+  const known=w>0&&h>0;if(!known){w=600;h=300}const per=2*(w+h)/1000,big=Math.max(w,h);const sz=known?`${Math.round(w)}x${Math.round(h)} มม.`:"ไม่ทราบขนาด สมมติ 600x300 มม.";const conf=known?2:1;
+  if(/\bPID\b|PRE-?\s*INSULAT|PHENOLIC|\bPIR\b/.test(S))return one("HVAC-PID",conf,{mult:+per.toFixed(3),desc:`ท่อลม PID ${sz} (พื้นที่ผิว = เส้นรอบรูป ${per.toFixed(2)} ม. × ความยาว)`});
+  if(/BLACK|เหล็กดำ|KITCHEN|GREASE|ครัว|SMOKE|ควัน/.test(S)){const tm=S.match(/(?:\bT\s*=\s*|หนา\s*)(\d(?:\.\d+)?)|\b(\d\.\d+)\s*(?:MM|มม)/);const t=tm?(tm[1]||tm[2]):undefined;const tk=t?(+t<=1.05?"10":+t<=1.3?"12":+t<=1.7?"15":"20"):(/KITCHEN|GREASE|ครัว/.test(S)?"15":"12");
+    return one("HVAC-BSD-"+tk,t?conf:Math.min(conf,1),{mult:+(per*10.764).toFixed(3),desc:`ท่อลมเหล็กดำ หนา ${(+tk/10).toFixed(1)} มม. ${sz} (ตร.ฟ. = เส้นรอบรูป ${per.toFixed(2)} ม. × 10.764 × ความยาว)`,note:t?"":"ไม่ระบุความหนา ใช้ค่ามาตรฐาน ควรตรวจ"})}
+  const g=big<=300?"26":big<=750?"24":big<=1350?"22":big<=2100?"20":"18";const bw=(S.match(/BWG\s*#?\s*(\d{2})|(?:GA|GAUGE|เบอร์)\s*#?\s*(\d{2})/)||[]);const gg=bw[1]||bw[2]||g;const code=has("HVAC-DUCT-"+gg)?"HVAC-DUCT-"+gg:"HVAC-DUCT-24";
+  const out=one(code,conf,{mult:+(per*10.764).toFixed(3),desc:`ท่อลมเหล็กอาบสังกะสี BWG ${code.slice(10)} ${sz} (ตร.ฟ. = เส้นรอบรูป ${per.toFixed(2)} ม. × 10.764 × ความยาว)`,note:bw[1]||bw[2]?"":"ความหนาตามด้านยาวสุดของท่อ (SMACNA)"});
+  if(!/EXHAUST|\bEA\b|\bEAD\b|ระบาย/.test(S))out.push(...one("HVAC-DUCTINS",conf,{mult:+(per*10.764).toFixed(3),desc:`ฉนวนหุ้มท่อลม ${sz}`}));return out}
+function pullBox(x){const g=/GALV|HDG|ชุบ/.test(x.S)?"ELE-PULLG-":"ELE-PULL-";let m=x.S.match(/(\d{1,4})\s*["]?\s*[X×]\s*(\d{1,4})\s*["]?\s*(?:[X×]\s*(\d{1,4}))?/);
+  if(!m)return one(g+"6x6x4",1,{note:"ไม่ทราบขนาด Pull box ใช้ 6\"x6\"x4\""});let d=[+m[1],+m[2],+(m[3]||4)];if(d[0]>40)d=d.map(v=>Math.round(v/25.4));d=[...d.slice(0,2).sort((a,b)=>a-b),d[2]];
+  const keys=g==="ELE-PULL-"?["4x4x4","6x6x4","6x8x4","8x8x4","8x8x6","8x10x4","10x10x4","10x10x6","10x12x4","12x12x4","12x12x6","16x16x6","20x20x8"]:["4x4x4","6x6x4","6x6x6","8x8x4","8x8x6","10x10x4","10x10x6","12x12x6"];
+  const k=nearCode(g,d.join("x"),keys);return k?[{code:g+k,conf:k===d.join("x")?3:2,note:k===d.join("x")?"":`ไม่มีขนาด ${d.join("x")} ในบัญชี ใช้ ${k}`}]:[]}
+function tray(x){const S=x.S;const pre=/LADDER|แลดเดอร์/.test(S)?"ELE-LAD-":/WIRE\s*WAY|WIREWAY|วายเวย์|\bWW\b/.test(S)?"ELE-WW-":/PAINT|EPOXY|พ่นสี|ข้างเรียบ/.test(S)?"ELE-CTP-":"ELE-CT-";
+  let m=S.match(/(\d{2,4})\s*(?:MM|มม\.?)?\s*[X×]\s*(\d{2,4})/),w=0,h=0;if(m){w=+m[1];h=+m[2]}else{const i=S.match(/(\d{1,2})\s*"\s*[X×]\s*(\d{1,2})\s*"/);if(i){w=+i[1]*25;h=+i[2]*25}else{const o=S.match(/(?:W\s*=?\s*|กว้าง\s*)(\d{3,4})/);if(o)w=+o[1]}}
+  if(pre==="ELE-WW-"){if(!w)return one("ELE-WW-100x100",1,{note:"ไม่ทราบขนาดรางวายเวย์ ใช้ 100x100"});const a=Math.min(w,h||w),b=Math.max(w,h||w);const ks=["50x75","50x100","75x100","100x100","50x150","100x150","150x150","100x200","150x200","200x200","100x250","150x250","200x250","100x300","150x300","200x300"];const k=nearCode(pre,`${a}x${b}`,ks);return k?[{code:pre+k,conf:k===`${a}x${b}`?3:2}]:[]}
+  if(!w)return one("ELE-TRAY",1,{note:"ไม่ทราบความกว้างราง ใช้ 300 มม."});const wid=h&&h>w&&h>=100&&w<=150?h:w;const ks=[100,200,300,400,500,600,700,800,900,1000].filter(v=>v>=wid);const k=ks.find(v=>has(pre+v));return k?[{code:pre+k,conf:k===wid?3:2,note:k===wid?"":`ใช้ความกว้าง ${k} มม.`}]:one("ELE-TRAY",1)}
+const RULES=[
+ R("c",/SMOKE|\bSD\b|\bSMK\b/,()=>one("FA-SMK")),R("c",/HEAT\s*DET|\bHD\b/,()=>one("FA-HEAT")),
+ R("c",/MANUAL\s*(STATION|PULL|CALL)|\bMCP\b|\bMS\b/,()=>one("FA-MS")),R("c",/BELL|HORN|STROBE|SOUNDER/,()=>one("FA-BELL")),
+ R("c",/FACP|FIRE\s*ALARM\s*(CONTROL|PANEL)/,()=>one("FA-CP")),
+ R("c",/SPRINK|\bSPK|\bSP\b|สปริงเกลอร์|หัวกระจาย|FIRESUPPRESSION/,x=>one(/EXPOS|UPRIGHT|ลอย/.test(x.S)?"FP-SPK-E":"FP-SPK-C")),
+ R("c",/FHC|HOSE\s*CAB|ตู้ดับเพลิง/,()=>one("FP-FHC")),R("c",/FDC|SIAMESE|FIRE\s*DEP|หัวรับน้ำ/,()=>one("FP-FDC")),
+ R("c",/EXTING|\bFE\b|ถังดับเพลิง/,()=>one("FP-EXT")),R("c",/ALARM\s*CHECK|\bACV\b|\bZCV\b|ZONE\s*CONTROL|FLOOR\s*CONTROL|\bFCV\b/,()=>one("FP-ACV")),
+ R("c",/FLOW\s*SW|\bFS\b/,()=>one("FP-FS")),R("c",/JOCKEY/,()=>one("FP-JOCKEY")),R("c",/FIRE\s*PUMP/,()=>one("FP-PUMP")),
+ R("c",/GATE|\bGV\b|OS&Y|ประตูน้ำ/,x=>one(x.fire?"FP-GV":"SAN-GV")),R("c",/CHECK\s*V|\bCV\b|เช็ควาล์ว/,x=>one(x.fire?"FP-CV":"SAN-CV")),
+ R("c",/BUTTERFLY|\bBFV\b/,x=>one(x.hvac&&!x.fire?"HVAC-VALVE":"FP-BFV",x.fire||x.hvac?3:2)),R("c",/BALL\s*V|\bBV\b|บอลวาล์ว/,()=>one("SAN-BALL")),
+ R("c",/STRAINER|\bYS\b|FLEX\s*CONN/,x=>sized("SAN-YS-",x,"1")),R("c",/\bPRV\b|PRESSURE\s*RED/,()=>one("SAN-PRV")),
+ R("c",/FLOAT|ลูกลอย/,()=>one("SAN-FLOAT")),R("c",/METER|\bWM\b|มาตรวัดน้ำ/,()=>one("SAN-METER")),R("c",/STOP\s*V|\bSTV\b/,()=>one("SAN-STOPV")),
+ R("c",/BALANC|\bBLV\b/,()=>one("HVAC-VALVE")),
+ R("c",/\bWC\b|TOILET|WATER\s*CLOSET|ส้วม|ชักโครก/,()=>one("SAN-WC")),R("c",/\bLAV|BASIN|อ่างล้างหน้า/,()=>one("SAN-LAV")),
+ R("c",/\bUR\b|URINAL|โถปัสสาวะ/,()=>one("SAN-URI")),R("c",/\bFD\b|FLOOR\s*DRAIN|ท่อระบายพื้น/,()=>one("SAN-FD")),
+ R("c",/\bFCO\b|\bCO\b|CLEAN\s*OUT/,x=>sized("SAN-CO-",x,"4")),R("c",/SINK|ซิงค์/,()=>one("SAN-SINK1")),
+ R("c",/HOSE\s*BIB|ก๊อกสนาม/,()=>one("SAN-HOSEBIB")),R("c",/SPRAY|BIDET|สายชำระ/,()=>one("SAN-SPRAY")),
+ R("c",/PUMP|ปั๊ม/,()=>one("SAN-PUMP")),R("c",/TANK|ถังเก็บน้ำ/,()=>one("SAN-TANK")),
+ R("c",/\bAHU\b/,()=>one("HVAC-AHU")),R("c",/\bVRF|\bVRV/,()=>one("HVAC-VRF")),
+ R("c",/\bFCU\b|FAN\s*COIL|\bAC\b|A\/C|SPLIT|\bCDU\b|UNITARY|แอร์|เครื่องปรับอากาศ/,x=>acUnit(x)),
+ R("c",/DIFFUSER|\bCSD\b|\bSAD\b|\bSAG\b|SUPPLY\s*AIR|AIRTERMINAL/,x=>diffuser(x)),R("c",/RETURN\s*(AIR)?\s*GR|\bRAG\b/,()=>one("HVAC-RAG-24")),
+ R("c",/EXHAUST\s*GR|\bEAG\b|\bEXG\b/,()=>one("HVAC-EXG-8")),R("c",/\bEF\b|EXHAUST\s*FAN|VENT\s*FAN|พัดลมระบาย|\bFAN\b/,x=>one(/WALL|ผนัง/.test(x.S)?"HVAC-FAN-W8":"HVAC-FAN-CEIL")),
+ R("c",/EXIT|ทางออก|หนีไฟ/,()=>one("ELE-EXIT")),R("c",/EMER|ฉุกเฉิน/,()=>one(has("ELE-EMER")?"ELE-EMER":"ELE-EXIT")),
+ R("c",/PULL\s*BOX|พูลบ|พลูบ/,x=>pullBox(x)),R("c",/HANDY\s*BOX|แฮนดี้/,x=>one(/GALV|HDG|ชุบ/.test(x.S)?"ELE-HBG":"ELE-HB")),
+ R("c",/SQ(UARE)?\.?\s*BOX|JUNCTION\s*BOX|\bJ\.?B\.?\b|กล่องต่อสาย|กล่องพักสาย/,x=>one(/GALV|HDG|ชุบ/.test(x.S)?"ELE-SQBG":"ELE-SQB")),
+ R("c",/\bLAN\b|DATA\s*OUT|COMPUTER\s*OUT|\bRJ\s*45/,()=>one("ELE-LAN")),R("c",/\bMDB\b/,()=>one("ELE-MDB")),R("c",/LOAD\s*CENTER|\bLC\b|CONSUMER/,()=>one("ELE-LC")),
+ R("c",/PANEL|\bDB\b|\bLP\b|\bPP\b|\bSDB\b|DISTRIBUTIONBOARD|ตู้ไฟ/,()=>one("ELE-PB")),R("c",/OUTLET|RECEP|SOCKET|เต้ารับ|\bREC\b/,x=>/TEL|LAN|DATA|UTP|MATV|\bTV\b|โทรศัพท์|WIFI/.test(x.S)?[]:one("ELE-OUT2")),
+ R("c",/SWITCH|\bSW\b|สวิตช์/,x=>one(/3W|3-WAY|TWO\s*WAY|สองทาง/.test(x.S)?"ELE-SW3":"ELE-SW1")),R("c",/GROUND\s*ROD|\bGND\b|หลักดิน/,()=>one("ELE-GND")),
+ R("c",/HIGH\s*BAY|LOW\s*BAY/,()=>one("ELE-HIGHBAY")),R("c",/TROFFER|GRID\s*LIGHT|RECESS(ED)?\s*(FL|LED)|2X36|3X18/,()=>one("ELE-TROFFER2")),
+ R("c",/BATTEN|FLUOR|\bFL\b|\bT8\b|\bT5\b|TUBE/,x=>one(/2\s*X/.test(x.S)?"ELE-BATTEN2":"ELE-BATTEN1")),
+ R("c",/DOWN\s*LIGHT|\bDL\b|ดาวน์ไลท์/,()=>one("ELE-DL46")),R("c",/LIGHT|LAMP|LUMIN|โคม/,()=>one("ELE-DL46",1,{note:"ชนิดโคมไม่ชัด ใช้ดาวน์ไลท์"})),
+ R("l",/EMT|IMC|RSC|CONDUIT|CABLECARRIER|\bFLEX\b(?!\s*DUCT)|ท่อร้อยสาย/,x=>conduit(x)),
+ R("l",/CABLE\s*TRAY|WIRE\s*WAY|LADDER|รางเดินสาย|รางเคเบิ้ล|วายเวย์/,x=>tray(x)),
+ R("l",/UTP|CAT\s*6|CAT\s*5|LAN\s*CABLE|สายแลน/,()=>one("ELE-UTP6")),
+ R("l",/THW|IEC\s*01|\bWIRE\b|CABLE|สายไฟ|\bVAF\b/,x=>wire(x)),
+ R("l",/FIRE|\bFP\b|SPRINK|\bSPK\b|\bSP\b|\bFW\b|ดับเพลิง/,x=>sized(/WELD|เชื่อม/.test(x.S)?"FP-BSW-":"FP-BSG-",x,"2")),
+ R("l",/COPPER|\bCU\b|REFRIG|ทองแดง|\bRL\b|\bRS\b|LIQUID|SUCTION|น้ำยา/,x=>copper(x)),
+ R("l",/CONDENS|\bCDP\b|\bCD\b|น้ำทิ้งแอร์/,()=>one("HVAC-DRAIN")),R("l",/FLEX\s*DUCT|FLEXIBLE\s*DUCT|ท่อลมอ่อน/,x=>flexduct(x)),
+ R("l",/DUCT|ท่อลม|\bPID\b|\bSAD?\b|\bRAD?\b|\bEAD?\b|\bOAD?\b|\bFAD\b/,x=>duct(x)),
+ R("l",/PPR|PP-R|\bPB\b|HDPE/,x=>sized(/DRAIN|WASTE|SOIL|\bSW\b|\bV\b|VENT|ระบาย/.test(x.S)?"SAN-PPD-":"SAN-PPR-",x,"1")),
+ R("l",/GSP|GALV|\bGI\b|อาบสังกะสี/,x=>sized("SAN-GSP-",x,"1")),
+ R("l",/DRAIN|WASTE|SOIL|VENT|\bSW\b|\bWW\b|\bDR\b|STORM|RAIN|ระบาย|ท่อน้ำทิ้ง/,x=>sized("SAN-DRN-",x,"4")),
+ R("l",/PVC|\bCW\b|\bHW\b|WATER|PLUMB|ประปา|น้ำดี|PIPESEGMENT|(^|\s)P-/,x=>sized(/13\.?5/.test(x.S)?"SAN-PVC135-":"SAN-PVC85-",x,"12")),
+ R("l",/(^|[^A-Z])WALL|ผนัง/,x=>wallRows(x,false)),
+ R("a",/WALL/,x=>x.ifc?wallRows(x,true):[]),
+ R("v",/SLAB|BEAM|COLUMN|FOOTING|PILE|CONCRETE|คอนกรีต|MEMBER/,()=>one("STR-CON240",2,{note:"สมมติคอนกรีต 240 ksc"})),
+];
+const NOISE=/DIM|TEXT|ANNO|GRID|AXIS|TITLE|BORDER|FRAME|HATCH|DEFPOINTS|VPORT|VIEWPORT|NOTE|LEGEND|\bTAG|SYMB|CENTER|^0$|AREA|ROOM|FURN|XREF|\bX-|SHEET|LOGO|STAMP/i;
+const IFC_KW={LIGHTFIXTURE:"LIGHT",OUTLET:"OUTLET",SWITCHINGDEVICE:"SWITCH",DISTRIBUTIONBOARD:"PANEL",ELECTRICDISTRIBUTIONBOARD:"PANEL",FIRESUPPRESSIONTERMINAL:"SPRINKLER",AIRTERMINAL:"DIFFUSER",UNITARYEQUIPMENT:"AC",PUMP:"PUMP",TANK:"TANK",FAN:"FAN",CABLECARRIERSEGMENT:"CONDUIT",CABLESEGMENT:"CABLE",PIPESEGMENT:"PIPE"};
+function mtOf(t){if(t.mtype==="len")return"l";if(t.mtype==="area")return"a";if(t.mtype==="vol")return"v";if(t.mtype==="count")return"c";
+  const u=String(t.unit||"").toLowerCase().replace(/\s/g,"");if(/^(m|ม\.?|เมตร|lm|meter|metre)$/.test(u))return"l";if(/m2|m²|ตร\.?ม|sqm/.test(u))return"a";if(/m3|m³|ลบ\.?ม|cum/.test(u))return"v";return"c"}
+function matchTakeoff(t){
+  if(t.code)return has(t.code)?[{code:t.code,conf:t.conf??3,note:t.note||""}]:null;
+  const f=F[t.file];const isIfc=f?.kind==="ifc";
+  let S=[t.label,t.layer,t.block,t.hint].filter(Boolean).join(" ");if(isIfc&&IFC_KW[t.layer])S+=" "+IFC_KW[t.layer];
+  S=" "+S.toUpperCase().replace(/_/g," ")+" ";
+  const mt=mtOf(t);
+  if(!isIfc&&t.kind!=="table"&&(mt==="l"||mt==="a")&&t.layer&&NOISE.test(t.layer)&&!t.hint)return null;
+  const sz=parseSizes(S);let nearSize=false;
+  if(t.sizeHint&&!sz.inch&&!sz.mm){if(t.sizeHint.inch)sz.inch=t.sizeHint.inch;if(t.sizeHint.mm)sz.mm=t.sizeHint.mm;nearSize=true}
+  const x={S,sz,nearSize,ifc:isIfc,fire:/(^|[^A-Z])(F|FP|FA|FS)[-\s]|FIRE|SPRINK|ดับเพลิง/.test(S),hvac:/(^|[^A-Z])M[-\s]|HVAC|ปรับอากาศ|\bCHW/.test(S)};
+  for(const r of RULES){if(r.mt!==mt||!r.re.test(S))continue;const res=r.fn(x);if(res&&res.length){
+    if(t.kind==="pdfauto")res.forEach(v=>{v.conf=Math.min(v.conf,2);v.note=[v.note,"อ่านจาก PDF ตรวจสอบกับแบบ"].filter(Boolean).join(" · ")});
+    if(String(t.id||"").includes("|cadblk|"))res.forEach(v=>{v.conf=Math.min(v.conf,2);v.note=[v.note,"นับจาก Block/Layer ตรวจชนิดกับแบบ"].filter(Boolean).join(" · ")});
+    return res}}
+  return null;
+}
+const wasteOf=c=>/^HVAC-(DUCT-|BSD)/.test(c)?15:/^ELE-THW|^ELE-VAF/.test(c)?10:/^(SAN-(PVC|DRN|PPR|PPD|GSP)|FP-BS|HVAC-(CU|INS|DRAIN|FLEX|PID)|ELE-(EMT|IMC|RSC|PVCC|FLEX|TRAY|CT|CTP|LAD|WW|UTP))/.test(c)?5:0;
+
+/* geometry helpers: nearest segment grid */
+function dseg2(x,y,s){const dx=s[2]-s[0],dy=s[3]-s[1],L=dx*dx+dy*dy;let t=L?((x-s[0])*dx+(y-s[1])*dy)/L:0;t=t<0?0:t>1?1:t;const px=s[0]+t*dx-x,py=s[1]+t*dy-y;return px*px+py*py}
+function segGrid(segs,cell){const g=new Map();
+  segs.forEach((s,k)=>{const L=Math.hypot(s[2]-s[0],s[3]-s[1]);const n=Math.max(1,Math.ceil(L/(cell*.5)));let last="";
+    for(let i=0;i<=n;i++){const x=s[0]+(s[2]-s[0])*i/n,y=s[1]+(s[3]-s[1])*i/n;const key=Math.floor(x/cell)+","+Math.floor(y/cell);if(key===last)continue;last=key;let a=g.get(key);if(!a)g.set(key,a=[]);if(a[a.length-1]!==k)a.push(k)}});
+  return {nearest(x,y,R){let best=-1,bd=R*R;const i0=Math.floor((x-R)/cell),i1=Math.floor((x+R)/cell),j0=Math.floor((y-R)/cell),j1=Math.floor((y+R)/cell);
+    for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){const a=g.get(i+","+j);if(!a)continue;for(const k of a){const d=dseg2(x,y,segs[k]);if(d<bd){bd=d;best=k}}}return best}}}
+const TOK_RE=/^[A-Z][A-Z0-9\-\/&.]{0,9}$|^[฀-๿]{2,12}$/;
+/* texts: [{x,y,str}], segs: [[x1,y1,x2,y2,gi]], returns per group {tokens:{}, sizeTexts:[{x,y,size}]} */
+function nearTexts(segs,texts,R){
+  const grid=segGrid(segs,R);const per=new Map();
+  for(const t of texts){const k=grid.nearest(t.x,t.y,R);if(k<0)continue;const gi=segs[k][4];let o=per.get(gi);if(!o)per.set(gi,o={tokens:{},sizes:[]});
+    const z=parseSizes(t.str);const sk=z.inch?IN_CODE[z.inch]&&z.inch:null;if(sk||z.mm)o.sizes.push({x:t.x,y:t.y,inch:z.inch||null,mm:z.mm||null});
+    for(const w of String(t.str).toUpperCase().split(/[\s,;:()]+/)){if(w.length<2||/^\d/.test(w)||!TOK_RE.test(w))continue;o.tokens[w]=(o.tokens[w]||0)+1}}
+  return per;
+}
+function topTokens(o,n=4){return Object.entries(o.tokens).sort((a,b)=>b[1]-a[1]).slice(0,n).map(a=>a[0])}
+const sizeLabel=z=>z.inch?`ø${z.inch}"`:z.mm?`ø${z.mm} มม.`:"";
+/* split a group's segment lengths by nearest size text */
+function splitBySize(segIdx,segs,sizes,lenOf){
+  const bins=new Map();
+  for(const k of segIdx){const s=segs[k];const mx=(s[0]+s[2])/2,my=(s[1]+s[3])/2;let bi=-1,bd=Infinity;
+    sizes.forEach((z,i)=>{const d=(z.x-mx)**2+(z.y-my)**2;if(d<bd){bd=d;bi=i}});
+    const z=sizes[bi];const key=z.inch||("mm"+z.mm);let b=bins.get(key);if(!b)bins.set(key,b={size:{inch:z.inch,mm:z.mm},len:0,idx:[]});b.len+=lenOf(k);b.idx.push(k)}
+  return [...bins.values()];
+}
+
+/* DXF: refine length groups with nearby text (tokens + size split) */
+function dxfRefine(name,d,list){
+  const segs=[],own=[];const lenEnt={};
+  const lenGroups=list.filter(t=>t.mtype==="len");const gi={};lenGroups.forEach((t,i)=>{gi[t.layer]=i});
+  for(const e of d.ents){if(!e.pts||!(e.len>0)||gi[e.layer]==null)continue;for(let i=1;i<e.pts.length;i++){segs.push([e.pts[i-1][0],e.pts[i-1][1],e.pts[i][0],e.pts[i][1],gi[e.layer]]);own.push(e.h)}}
+  if(!segs.length)return list;
+  const texts=d.ents.filter(e=>e.txt).map(e=>({x:e.cx,y:e.cy,str:e.txt}));if(!texts.length)return list;
+  const R=Math.max(0.6/d.unit,1e-9);const per=nearTexts(segs,texts,R);const out=list.filter(t=>t.mtype!=="len");
+  lenGroups.forEach((t,i)=>{const o=per.get(i);if(!o){out.push(t);return}
+    const hint=topTokens(o).join(" ");const idx=[];segs.forEach((s,k)=>{if(s[4]===i)idx.push(k)});
+    const ds=new Set(o.sizes.map(z=>z.inch||z.mm));
+    if(ds.size>=2){for(const b of splitBySize(idx,segs,o.sizes,k=>Math.hypot(segs[k][2]-segs[k][0],segs[k][3]-segs[k][1]))){
+        const hs=[...new Set(b.idx.map(k=>own[k]))];out.push({...t,id:t.id+"|"+(b.size.inch||b.size.mm),label:`${t.label} ${sizeLabel(b.size)}`,qty:b.len*d.unit,hint,sizeHint:b.size,refs:{handles:hs},src:`${t.src} · ${sizeLabel(b.size)} จากข้อความในแบบ`})}}
+    else out.push({...t,hint,sizeHint:o.sizes[0]?{inch:o.sizes[0].inch,mm:o.sizes[0].mm}:null,label:o.sizes[0]?`${t.label} ${sizeLabel(o.sizes[0])}`:t.label})});
+  return out;
+}
+
+/* PDF: vector paths grouped by stroke colour/width/dash, split by nearby size text, plus symbol tags */
+async function pdfVectors(pdf,pn){
+  const pg=await pdf.getPage(pn),vp=pg.getViewport({scale:1}),O=pdfjsLib.OPS;
+  const [ol,tc]=await Promise.all([pg.getOperatorList(),pg.getTextContent()]);
+  const fnA=ol.fnArray,arA=ol.argsArray;
+  const mul=(m,n)=>[m[0]*n[0]+m[2]*n[1],m[1]*n[0]+m[3]*n[1],m[0]*n[2]+m[2]*n[3],m[1]*n[2]+m[3]*n[3],m[0]*n[4]+m[2]*n[5]+m[4],m[1]*n[4]+m[3]*n[5]+m[5]];
+  let ctm=vp.transform.slice(),col="#000000",lw=1,dash=false,pend=null;const st=[];
+  const ap=(x,y)=>[ctm[0]*x+ctm[2]*y+ctm[4],ctm[1]*x+ctm[3]*y+ctm[5]];
+  const hex=a=>typeof a[0]==="string"?a[0]:"#"+[0,1,2].map(i=>(Math.round(a[i])&255).toString(16).padStart(2,"0")).join("");
+  const G=new Map();let nseg=0;const MAX=2500000;const ALL=[];const CIR=[];const PRIM=[];
+  const circ=(pts,fill)=>{if(pts.length<8)return;let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;for(const [x,y] of pts){x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y)}
+    const w=x1-x0,h=y1-y0;if(w<0.8||w>40||Math.abs(w-h)>0.08*w)return;const cx=(x0+x1)/2,cy=(y0+y1)/2,r=(w+h)/4;for(const [x,y] of pts)if(Math.abs(Math.hypot(x-cx,y-cy)-r)>0.1*r)return;CIR.push({x:cx,y:cy,r,fill})};
+  const build=(ops,c)=>{const L=[];let cur=null,j=0,sx=0,sy=0,cx=0,cy=0;
+    for(const op of ops){
+      if(op===O.moveTo){cx=c[j++];cy=c[j++];sx=cx;sy=cy;cur=[ap(cx,cy)];L.push(cur)}
+      else if(op===O.lineTo){cx=c[j++];cy=c[j++];if(!cur){cur=[];L.push(cur)}cur.push(ap(cx,cy))}
+      else if(op===O.curveTo){const x1=c[j],y1=c[j+1],x2=c[j+2],y2=c[j+3],x3=c[j+4],y3=c[j+5];j+=6;if(cur)for(const t of [.25,.5,.75,1]){const u=1-t;cur.push(ap(u*u*u*cx+3*u*u*t*x1+3*u*t*t*x2+t*t*t*x3,u*u*u*cy+3*u*u*t*y1+3*u*t*t*y2+t*t*t*y3))}cx=x3;cy=y3}
+      else if(op===O.curveTo2||op===O.curveTo3){cx=c[j+2];cy=c[j+3];j+=4;if(cur)cur.push(ap(cx,cy))}
+      else if(op===O.closePath){if(cur)cur.push(ap(sx,sy));cx=sx;cy=sy}
+      else if(op===O.rectangle){const x=c[j++],y=c[j++],w=c[j++],h=c[j++];L.push([ap(x,y),ap(x+w,y),ap(x+w,y+h),ap(x,y+h),ap(x,y)]);cur=null}}
+    return L};
+  const STROKE=new Set([O.stroke,O.closeStroke,O.fillStroke,O.eoFillStroke,O.closeFillStroke,O.closeEOFillStroke]);
+  for(let i=0;i<fnA.length&&nseg<MAX;i++){const fn=fnA[i],a=arA[i];
+    if(fn===O.save)st.push([ctm,col,lw,dash]);else if(fn===O.restore){const s=st.pop();if(s)[ctm,col,lw,dash]=s}
+    else if(fn===O.transform)ctm=mul(ctm,a);
+    else if(fn===O.paintFormXObjectBegin){st.push([ctm,col,lw,dash]);if(a&&a[0])ctm=mul(ctm,a[0])}
+    else if(fn===O.paintFormXObjectEnd){const s=st.pop();if(s)[ctm,col,lw,dash]=s}
+    else if(fn===O.setStrokeRGBColor)col=hex(a);
+    else if(fn===O.setLineWidth)lw=a[0];
+    else if(fn===O.setDash)dash=!!(a[0]&&a[0].length);
+    else if(fn===O.setGState){for(const [k,v] of a[0]||[]){if(k==="LW")lw=v;else if(k==="D")dash=!!(v&&v[0]&&v[0].length)}}
+    else if(fn===O.constructPath){pend=build(a[0],a[1]);if(a[0].includes(O.curveTo))pend.circ=true}
+    else if((STROKE.has(fn)||fn===O.fill||fn===O.eoFill)&&pend&&pend.circ&&CIR.length<200000){for(const pl of pend)circ(pl,!STROKE.has(fn)||fn!==O.stroke&&fn!==O.closeStroke)}
+    if((fn===O.fill||fn===O.eoFill)&&pend&&PRIM.length<1500000){for(const pl of pend){if(pl.length<3||pl.length>40)continue;let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9,cx=0,cy=0,lg=0,la=0;for(let k=0;k<pl.length;k++){const [x,y]=pl[k];cx+=x;cy+=y;x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y);if(k){const l=Math.hypot(x-pl[k-1][0],y-pl[k-1][1]);if(l>lg){lg=l;la=(Math.atan2(y-pl[k-1][1],x-pl[k-1][0])*180/Math.PI+360)%180}}}
+      const d=Math.max(x1-x0,y1-y0);if(d>40||d<0.05)continue;PRIM.push([cx/pl.length,cy/pl.length,lg,la,d])}}
+    if(STROKE.has(fn)&&pend){
+      if(col!=="#ffffff"){const lwd=Math.max(lw,0.0)*Math.sqrt(Math.abs(ctm[0]*ctm[3]-ctm[1]*ctm[2]));const key=col+"|"+(Math.round(lwd*20)/20)+"|"+(dash?1:0);
+        let g=G.get(key);if(!g)G.set(key,g={key,col,lw:Math.round(lwd*20)/20,dash,segs:[],len:0});
+        for(const pl of pend)for(let k=1;k<pl.length;k++){const s=[pl[k-1][0],pl[k-1][1],pl[k][0],pl[k][1]];const l=Math.hypot(s[2]-s[0],s[3]-s[1]);if(l<0.05)continue;g.segs.push(s);g.len+=l;nseg++;if(l<=40){ALL.push(s);if(PRIM.length<1500000)PRIM.push([(s[0]+s[2])/2,(s[1]+s[3])/2,l,(Math.atan2(s[3]-s[1],s[2]-s[0])*180/Math.PI+360)%180,l])}}}
+      pend=null}
+    if(fn===O.fill||fn===O.eoFill||fn===O.endPath)pend=null;
+  }
+  const texts=[];let all="";
+  for(const it of tc.items){const s=(it.str||"").trim();if(!s)continue;all+=" "+s;const [x,y]=vp.convertToViewportPoint(it.transform[4],it.transform[5]);texts.push({x:x+(it.width||0)/2,y:y-(it.height||6)/2,str:s})}
+  const sc={};for(const m of all.matchAll(/1\s*[:：]\s*(\d{2,4})(?!\d)/g)){const n=+m[1];if(n>=10&&n<=2000)sc[n]=(sc[n]||0)+1}
+  const scaleN=+(Object.entries(sc).sort((a,b)=>b[1]-a[1])[0]||[0])[0]||null;
+  // groups → candidates
+  let groups=[...G.values()].filter(g=>g.len>=36).sort((a,b)=>b.len-a.len).slice(0,80);
+  const segs=[];groups.forEach((g,gi)=>g.segs.forEach(s=>segs.push([s[0],s[1],s[2],s[3],gi])));
+  const short=texts.filter(t=>t.str.length<=16);
+  const per=segs.length?nearTexts(segs,short,10):new Map();
+  const out=[];const segStore={};
+  groups.forEach((g,gi)=>{const o=per.get(gi);const toks=o?topTokens(o).filter(w=>o.tokens[w]>=2||o.sizes.length):[];
+    const nm=`เส้น ${g.col} ${(g.lw*0.3528).toFixed(2)} มม.${g.dash?" ประ":""}`;
+    const base={col:g.col,desc:nm,hint:toks.join(" ")};
+    const ds=o?new Set(o.sizes.map(z=>z.inch||z.mm)):new Set();
+    if(o&&ds.size>=1){const gs=segs.map((s,k)=>s[4]===gi?k:-1).filter(k=>k>=0);
+      for(const b of splitBySize(gs,segs,o.sizes,k=>Math.hypot(segs[k][2]-segs[k][0],segs[k][3]-segs[k][1]))){const key=g.key+"|"+(b.size.inch||b.size.mm);segStore[key]=b.idx.map(k=>segs[k]);
+        out.push({...base,key,len:b.len,n:b.idx.length,size:b.size,label:`${toks[0]?toks.slice(0,2).join(" ")+" ":""}${sizeLabel(b.size)} · ${nm}`})}}
+    else{segStore[g.key]=g.segs;out.push({...base,key:g.key,len:g.len,n:g.segs.length,size:null,label:`${toks.length?toks.slice(0,2).join(" ")+" · ":""}${nm}`})}});
+  // tags
+  const freq={};for(const t of texts){const s=t.str.toUpperCase();if(s.length<2||s.length>8||!/^[A-Z]{1,5}[-\s]?\d{0,3}[A-Z]?$/.test(s))continue;(freq[s]=freq[s]||[]).push([t.x,t.y])}
+  const tags=Object.entries(freq).filter(([s,p])=>p.length>=2&&p.length<=3000).sort((a,b)=>b[1].length-a[1].length).slice(0,60).map(([text,pts])=>({text,pts}));
+  const totL=groups.reduce((a,g)=>a+g.len,0)||1;
+  const colL=[...G.values()].filter(g=>{const m=/^#(..)(..)(..)$/.exec(g.col);if(!m)return false;const v=[m[1],m[2],m[3]].map(h=>parseInt(h,16));return Math.max(...v)-Math.min(...v)>40}).reduce((a,g)=>a+g.len,0);
+  const mono=colL/totL<0.05, noText=texts.length<20;
+  return {groups:out,segs:segStore,tags,scaleN,w:vp.width,h:vp.height,mono,noText,trunc:nseg>=MAX,all:ALL,circles:CIR,prim:PRIM};
+}
+async function pdfAuto(name,onProg){
+  const f=F[name];f.vec=f.vec||{};const out=[];const bad=[];const maxP=Math.min(f.pages,40);
+  for(let pn=1;pn<=maxP;pn++){onProg&&onProg(`อ่านเส้นและข้อความใน PDF หน้า ${pn}/${maxP}…`);await new Promise(r=>setTimeout(r,0));
+    let v;try{v=await pdfVectors(f.pdf,pn)}catch(e){continue}f.vec[pn]=v;
+    if(v.mono&&v.noText){bad.push(pn);continue}
+    let sc=P.calib[name+"#"+pn];if(!sc&&v.scaleN){sc=0.0254/72*v.scaleN;P.calib[name+"#"+pn]=sc;P.calib[name+"#"+pn+"#lbl"]=`1:${v.scaleN} (อ่านจากแบบ)`}
+    for(const g of v.groups)out.push({id:`${name}|p${pn}|vec|${g.key}`,file:name,kind:"pdfauto",mtype:"len",label:g.label,layer:g.col,hint:g.hint,sizeHint:g.size,qty:sc?g.len*sc:0,unit:"ม.",
+      refs:{page:pn,type:"vec",gk:g.key,pt:g.len},src:`${name} · หน้า ${pn} · ${g.desc} · ${g.n} เส้น${sc?"":" · ยังไม่ตั้งสเกล"}`});
+    for(const tg of v.tags)out.push({id:`${name}|p${pn}|tag|${tg.text}`,file:name,kind:"pdfauto",mtype:"count",label:`สัญลักษณ์ “${tg.text}”`,hint:tg.text,qty:tg.pts.length,unit:"จุด",
+      refs:{page:pn,type:"text",pts:tg.pts},src:`${name} · หน้า ${pn} · พบข้อความ “${tg.text}” ${tg.pts.length} ตำแหน่ง`});
+  }
+  regAuto(name,out,"pdfauto");
+  if(bad.length)showNote(name,`หน้า ${bad.join(", ")} ถอดอัตโนมัติไม่ได้: PDF พิมพ์ขาวดำและตัวอักษรถูกแปลงเป็นเส้น (ไม่มีข้อความให้อ่าน) โปรแกรมจึงแยกท่อออกจากผนัง/รายละเอียดไม่ได้ และอ่านขนาดท่อ/มาตราส่วนไม่ได้ — ใช้ไฟล์ DWG ของแผ่นเดียวกันจะถอดได้แม่นยำ · หรือใช้ปุ่ม “นับสัญลักษณ์เหมือนกัน” แล้วลากกรอบครอบสัญลักษณ์ 1 ตัว (เช่น เต้ารับ โคม หัวสปริงเกลอร์) โปรแกรมจะนับตัวที่เหมือนกันทั้งแผ่น · ส่วนความยาวท่อ/สาย เลือกมาตราส่วนแล้วใช้ “วัดความยาว”`);
+  return bad;
+}
+
+/* ---- symbol matching for vector PDFs: box one symbol, count identical ones ---- */
+async function ensureVec(name,pn){const f=F[name];f.vec=f.vec||{};if(!f.vec[pn]||!f.vec[pn].prim)f.vec[pn]=await pdfVectors(f.pdf,pn);return f.vec[pn]}
+function primGrid(v){if(v.pg)return v.pg;const P=v.prim,cell=4,g=new Map();P.forEach((p,i)=>{const k=Math.floor(p[0]/cell)+","+Math.floor(p[1]/cell);let a=g.get(k);if(!a)g.set(k,a=[]);a.push(i)});
+  return v.pg={cell,g,near(x,y,r,fn){const i0=Math.floor((x-r)/cell),i1=Math.floor((x+r)/cell),j0=Math.floor((y-r)/cell),j1=Math.floor((y+r)/cell);for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){const a=g.get(i+","+j);if(a)for(const k of a)if(fn(k))return true}return false}}}
+const angD=(a,b)=>{let d=Math.abs(a-b)%180;return Math.min(d,180-d)};
+async function symPickBox(bx){
+  const f=F[cur.file];if(!f||f.kind!=="pdf"){toast("นับสัญลักษณ์เหมือนกันใช้กับไฟล์ PDF · ไฟล์ DWG/DXF โปรแกรมนับตาม Block ให้อยู่แล้ว");return}
+  progress("กำลังค้นหาสัญลักษณ์ที่เหมือนกัน…");await new Promise(r=>setTimeout(r,20));
+  let v;try{v=await ensureVec(cur.file,cur.page)}catch(e){progress(null);toast("อ่านเส้นใน PDF ไม่ได้");return}
+  const [x0,y0,x1,y1]=[Math.min(bx[0],bx[2]),Math.min(bx[1],bx[3]),Math.max(bx[0],bx[2]),Math.max(bx[1],bx[3])];
+  const P=v.prim;const T=[];for(let i=0;i<P.length;i++){const p=P[i];const h=p[4]/2;if(p[0]-h>=x0-0.3&&p[0]+h<=x1+0.3&&p[1]-h>=y0-0.3&&p[1]+h<=y1+0.3)T.push(p)}
+  if(T.length<2){progress(null);toast("ในกรอบมีเส้นน้อยเกินไป ลากกรอบให้คลุมสัญลักษณ์ทั้งตัว");return}
+  if(T.length>400){progress(null);toast("กรอบใหญ่เกินไป ลากกรอบให้คลุมเฉพาะสัญลักษณ์ 1 ตัว");return}
+  const size=Math.max(x1-x0,y1-y0),tolP=Math.max(0.5,0.07*size);const G=primGrid(v);
+  const anchor=T.reduce((a,b)=>b[2]>a[2]?b:a);const found=[];
+  for(const [rot,mir] of [[0,0],[90,0],[180,0],[270,0],[0,1],[90,1],[180,1],[270,1]]){const rad=rot*Math.PI/180,c=Math.cos(rad),s=Math.sin(rad);const ma=a=>mir?(180-a)%180:a;
+    const RT=T.map(p=>{let dx=p[0]-anchor[0],dy=p[1]-anchor[1];if(mir)dx=-dx;return [dx*c-dy*s,dx*s+dy*c,p[2],(ma(p[3])+rot)%180]});
+    for(let i=0;i<P.length;i++){const q=P[i];if(Math.abs(q[2]-anchor[2])>Math.max(0.3,0.15*anchor[2])||angD(q[3],(ma(anchor[3])+rot)%180)>10)continue;
+      let miss=0;const allow=Math.floor(RT.length*0.15);for(const t of RT){const tx=q[0]+t[0],ty=q[1]+t[1];if(!G.near(tx,ty,tolP,k=>{const r=P[k];return Math.abs(r[0]-tx)<=tolP&&Math.abs(r[1]-ty)<=tolP&&Math.abs(r[2]-t[2])<=Math.max(0.3,0.2*t[2])&&angD(r[3],t[3])<=12})&&++miss>allow)break}
+      if(miss>allow)continue;      const ox=((x0+x1)/2-anchor[0])*(mir?-1:1),oy=(y0+y1)/2-anchor[1];const cc=[q[0]+ox*c-oy*s,q[1]+ox*s+oy*c];
+      if(!found.some(f=>Math.hypot(f[0]-cc[0],f[1]-cc[1])<size*0.5))found.push(cc)}}
+  progress(null);symSave(found,`รูปแบบเดียวกับที่ครอบไว้ ${T.length} ชิ้นส่วน`);
+}
+function symSave(pts,how){
+  const nm=($("#dName")?.value||"").trim()||`สัญลักษณ์ที่เลือก ${P.takeoffs.filter(t=>t.symPick).length+1}`;
+  const t={id:"t-"+uid(),file:cur.file,kind:"text",symPick:true,mtype:"count",label:nm,qty:pts.length,unit:"จุด",refs:{page:cur.page,pts},src:`${cur.file} · หน้า ${cur.page} · นับสัญลักษณ์ที่เหมือนตัวที่เลือก (รวมที่หมุน/กลับด้าน) พบ ${pts.length} ตำแหน่ง · ${how}`};
+  P.takeoffs.push(t);sel=t.id;save();renderTO();draw();hud();toast(`พบ ${pts.length} ตัว — ตรวจวงสีส้มในแบบ แล้วกด “เพิ่มลง BOQ”`);
+}
+
+/* Build BOQ from all takeoffs of the given files */
+function autoBuild(names){
+  if(!catalog.length){P.pendingAuto=[...new Set([...(P.pendingAuto||[]),...names])];return null}
+  const fset=new Set(names);P.auto=P.auto||{wallH:3,onOpen:true,unmatched:true,mepOnly:true};
+  if(mepOn())dropNonMepRows();
+  const tf=new Map(P.takeoffs.map(t=>[t.id,t.file]));
+  for(const r of P.boq)if(r.auto)r.tids=r.tids.filter(id=>!fset.has(tf.get(id)));
+  P.boq=P.boq.filter(r=>!(r.auto&&!r.tids.length));
+  let tos=P.takeoffs.filter(t=>fset.has(t.file)&&t.kind!=="manual"&&t.kind!=="text");
+  // IFC: one measure per element group
+  const ifcPick=t=>{if(F[t.file]?.kind!=="ifc")return true;const ty=t.layer||"";const pref=/SEGMENT|CARRIER/.test(ty)?"len":/SLAB|BEAM|COLUMN|FOOTING|PILE|MEMBER/.test(ty)?"vol":/WALL|COVERING|ROOF/.test(ty)?"area":"count";
+    const sib=P.takeoffs.some(o=>o.file===t.file&&o.mtype===pref&&o.id.split("|").slice(2).join("|")===t.id.split("|").slice(2).join("|"));return sib?t.mtype===pref:t.mtype==="count"};
+  tos=tos.filter(ifcPick);
+  if(mepOn())tos=tos.filter(t=>!isNonT(t));
+  const res={files:names.length,rows:0,conf:[0,0,0,0],un:[],noscale:0};const byKey=new Map();
+  for(const r of P.boq)if(r.auto&&r.pcode)byKey.set(r.pcode+"|"+r.mult,r);
+  for(const t of tos){
+    if(t.kind==="pdfauto"&&t.refs.type==="vec"&&!(t.qty>0))res.noscale++;
+    const m=matchTakeoff(t);
+    if(!m){if(t.qty>0&&t.kind!=="pdfauto"&&!(t.mtype==="area"&&F[t.file]?.kind==="dxf")&&!(t.layer&&NOISE.test(t.layer)))res.un.push(t);continue}
+    for(const it of m){const p=priceBy(it.code);if(!p||!catOK(p.cat))continue;const mult=it.mult||1;const k=it.code+"|"+mult;let r=byKey.get(k);
+      if(r){if(!r.tids.includes(t.id))r.tids.push(t.id);r.conf=Math.min(r.conf,it.conf);if(it.note&&!(r.note||"").includes(it.note))r.note=[r.note,it.note].filter(Boolean).join(" · ");continue}
+      r={id:uid(),auto:true,autoFile:t.file,conf:it.conf,note:it.note||"",cat:p.cat,desc:it.desc||p.name,unit:p.unit,tids:[t.id],mult,waste:wasteOf(it.code),qtyManual:0,
+        mat:p.mat!=null?p.mat:0,lab:p.lab!=null?p.lab:0,labPct:p.lab==null&&p.labPct!=null?p.labPct:null,pcode:p.code,
+        psrc:{mat:p.matSrc||"",lab:p.labSrc||(p.labPct!=null?`ว480 หมายเหตุท้ายบัญชี: ค่าแรง ${p.labPct}% ของค่าวัสดุ`:""),asOf:p.asOf||""}};
+      P.boq.push(r);byKey.set(k,r)}}
+  if(P.auto.unmatched)for(const t of res.un){if(mepOn()&&!isMepT(t))continue;P.boq.push({id:uid(),auto:true,autoFile:t.file,conf:0,note:"ไม่พบในบัญชีราคา ใส่ราคาเอง",cat:guessCat(t),desc:t.label,unit:t.unit,tids:[t.id],mult:1,waste:0,qtyManual:0,mat:0,lab:0,labPct:null,pcode:null,psrc:null})}
+  for(const r of P.boq)if(r.auto)res.conf[r.conf]++;
+  res.files=new Set(P.boq.filter(r=>r.auto).flatMap(r=>r.tids.map(id=>(P.takeoffs.find(t=>t.id===id)||{}).file)).filter(Boolean)).size;
+  res.rows=res.conf.reduce((a,b)=>a+b,0);res.at=new Date().toISOString();res.names=names;
+  P.autoSummary=res;P.pendingAuto=(P.pendingAuto||[]).filter(n=>!fset.has(n));save();return res;
+}
+function runPendingAuto(){if(P.pendingAuto&&P.pendingAuto.length&&catalog.length){autoBuild(P.pendingAuto);renderBOQ();renderTO()}}
+let progEl=null;function progress(t){if(!t){progEl&&progEl.remove();progEl=null;return}if(!progEl){progEl=document.createElement("div");progEl.className="toast";progEl.setAttribute("role","status");document.body.appendChild(progEl)}progEl.textContent=t}
+async function autoRun(names){
+  names=names.filter(n=>F[n]);if(!names.length){toast("เปิดไฟล์แบบก่อน");return}
+  for(const n of names){const f=F[n];
+    if(f.kind==="pdf")await pdfAuto(n,progress);
+    else if(f.kind==="dxf"&&f.cadDb){const r=cadAnalyze(n,f.cadDb,P.calib[n+"#u"]);f.dxf=r.disp;regAuto(n,r.takeoffs)}
+    else if(f.kind==="dxf"){progress("อ่านข้อความใกล้เส้นใน DXF…");await new Promise(r=>setTimeout(r,0));regAuto(n,dxfRefine(n,f.dxf,dxfTakeoffs(n,f.dxf)))}}
+  progress("จับคู่ราคากลางและสร้าง BOQ…");await new Promise(r=>setTimeout(r,0));
+  const res=autoBuild(names);progress(null);renderFiles();renderTO();renderBOQ();draw();hud();
+  if(!res){toast("บัญชีราคากำลังโหลด จะสร้าง BOQ ให้อัตโนมัติเมื่อโหลดเสร็จ");return}
+  if(!res.rows&&$("#fileNote").textContent.includes("ถอดอัตโนมัติไม่ได้")){toast("ถอดอัตโนมัติไม่ได้จาก PDF นี้ ดูคำแนะนำใต้รายชื่อไฟล์");return}
+  showTab("boq");toast(`ถอดอัตโนมัติแล้ว ${res.rows} รายการ`);
+}
+function autoBanner(){
+  const s=P.autoSummary;if(!s)return"";const c=s.conf;
+  return `<div class="banner auto"><b>ถอดอัตโนมัติ</b><span>${s.rows} รายการ จาก ${s.files} ไฟล์</span>
+   <span class="cf cf3">มั่นใจ ${c[3]}</span><span class="cf cf2">ควรตรวจ ${c[2]}</span><span class="cf cf1">ต้องตรวจ ${c[1]}</span>${c[0]?`<span class="cf cf0">ไม่มีราคา ${c[0]}</span>`:""}
+   ${s.noscale?`<span class="cf cf1">PDF ยังไม่ตั้งสเกล ${s.noscale} กลุ่มเส้น</span>`:""}
+   <span class="muted" style="flex-basis:100%;font-size:12px">แตะป้ายสีส้มเพื่อดูตำแหน่งในแบบ · รายการที่ “ต้องตรวจ” ให้เช็กขนาด/ชนิดกับแบบก่อนใช้</span></div>`;
+}
+
+/* ======== CAD (DWG/DXF via libredwg) : block-aware takeoff ======== */
+let dwgLibP=null;
+function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=()=>rej(new Error("โหลดไฟล์ "+src+" ไม่ได้"));document.head.appendChild(s)})}
+function dwgLib(){
+  if(dwgLibP)return dwgLibP;
+  dwgLibP=(async()=>{
+    if(!window.QtoDwg)await loadScript("lib/qto-dwg.js");
+    let bin;
+    if(OFFLINE){await loadScript("lib/qto-dwg-wasm.js");const b=atob(window.QTO_DWG_WASM_B64);bin=new Uint8Array(b.length);for(let i=0;i<b.length;i++)bin[i]=b.charCodeAt(i);window.QTO_DWG_WASM_B64=null}
+    else{const r=await fetch("lib/libredwg-web.wasm");if(!r.ok)throw new Error("โหลดตัวอ่าน DWG ไม่ได้");bin=new Uint8Array(await r.arrayBuffer())}
+    return bin.buffer})();
+  dwgLibP.catch(()=>{dwgLibP=null});return dwgLibP;
+}
+async function readCad(file,isDxf){const wasm=await dwgLib();return window.QtoDwg.open(new Uint8Array(await file.arrayBuffer()),isDxf,wasm)}
+const UNIT_M={1:0.0254,2:0.3048,4:0.001,5:0.01,6:1,14:0.1};
+const OD_STEEL=[["1/2",21.3],["3/4",26.9],["1",33.7],["1 1/4",42.4],["1 1/2",48.3],["2",60.3],["2 1/2",76.1],["3",88.9],["4",114.3],["5",139.8],["6",165.2],["8",219.1],["10",273],["12",323.9]];
+const OD_PPR=[["1/2",20],["3/4",25],["1",32],["1 1/4",40],["1 1/2",50],["2",63],["2 1/2",75],["3",90],["4",110],["6",160]];
+function nominalFromOD(mm,ppr){const T=ppr?OD_PPR:OD_STEEL;let best=null,be=1e9;for(const [n,od] of T){const e=Math.abs(od-mm)/od;if(e<be){be=e;best=n}}return be<=0.14?best:null}
+const cleanTxt=s=>String(s||"").replace(/%%[cC]/g,"ø").replace(/%%[dD]/g,"°").replace(/%%[pP]/g,"±").replace(/%%[uUoO]/g,"").replace(/\\[ACFHQTWfhqtw][^;\\]*;/g,"").replace(/\\P/g," ").replace(/\\[LlOoKk]/g,"").replace(/[{}]/g,"").trim();
+const isCenterLt=lt=>/CENTER|CENTRE|DASHDOT|CENT/i.test(lt||"");
+const ANON=/^\*[UDTXA]/i;
+const BAD_PIPE_LAYER=/\$0\$|HATCH|STUD|FRAME|WIREWAY|TRAY|LADDER|^0$|^S-|SUPPORT|DIM|TEXT|ANNO|GRID|AXIS|FURN|DEFPOINTS|LEADER/i;
+const ARCH_LAYER=/^(A|S|C|L|I)[-_ ]|ARCH|STRUC|DOOR|WINDOW|GLAZ|CURT|FURN|LANDSC/i;
+const FITTING=/\bTEE\b|ELBOW|REDUC|\d+\s*[xX+]\s*\d+|FLANG|UNION|COUPL|SOCKET|FLOW|ARROW|NIPPLE|CAP\b|BSP_|PR_|ST_JIS/i;
+function cadAnalyze(name,db,unitOverride){
+  const BR=(db.tables?.BLOCK_RECORD?.entries)||[];const B={};for(const b of BR)B[b.name]=b;
+  const LAYC={};for(const l of (db.tables?.LAYER?.entries)||[])LAYC[l.name]=l;
+  const bsC={};const blockSize=bn=>bn in bsC?bsC[bn]:(bsC[bn]=(B[bn]?.entities||[]).length);
+  const htC={};const headType=(bn,d=0)=>{if(d===0&&bn in htC)return htC[bn];let r=null;const nmU=String(bn).toUpperCase();
+    if(/CONCEAL/.test(nmU))r="CONCEAL";else if(/PENDENT|PENDANT/.test(nmU))r="PENDENT";else if(/UPRIGHT/.test(nmU))r="UPRIGHT";
+    if(!r)for(const e of B[bn]?.entities||[]){if((e.type==="TEXT"||e.type==="MTEXT"||e.type==="ATTDEF")){const t=cleanTxt(e.text).toUpperCase();if(t==="C"){r="CONCEAL";break}if(t==="P"){r="PENDENT";break}if(t==="U"){r="UPRIGHT";break}}
+      if(e.type==="INSERT"&&d<3){const q=headType(e.name,d+1);if(q&&q!=="UPRIGHT"){r=q;break}}}
+    if(d===0){r=r||"UPRIGHT";htC[bn]=r}return r};
+  const ms=BR.find(b=>/^\*model_space$/i.test(b.name));const msH=ms&&ms.handle;
+  const unit=unitOverride||UNIT_M[db.header?.INSUNITS]||0.001;
+  const top=db.entities||[];
+  const model=top.filter(e=>!msH||e.ownerBlockRecordSoftId===msH||!e.ownerBlockRecordSoftId);
+  // ---- paper-space viewports → plan regions
+  const vps=top.filter(e=>e.type==="VIEWPORT"&&e.viewportId!==1&&e.height>0&&e.viewHeight>0&&e.width>0).map(v=>{const k=v.viewHeight/v.height,t=v.targetPoint||{x:0,y:0},c=v.displayCenter||{x:0,y:0};const cx=t.x+c.x,cy=t.y+c.y,hw=v.width*k/2,hh=v.viewHeight/2;return {k,x0:cx-hw,x1:cx+hw,y0:cy-hh,y1:cy+hh}}).filter(v=>isFinite(v.x0));
+  const maxK=Math.max(0,...vps.map(v=>v.k));let plan=vps.filter(v=>v.k>=40||v.k>=0.6*maxK);
+  const inVp=(x,y)=>!plan.length||plan.some(v=>x>=v.x0&&x<=v.x1&&y>=v.y0&&y<=v.y1);let usePlan=true,dz=[];const DZ2=(4/unit)**2;
+  const inDet=(x,y)=>dz.some(([a,b])=>(a-x)**2+(b-y)**2<DZ2);const inPlan=(x,y)=>usePlan?inVp(x,y):!inDet(x,y);
+  if(plan.length){const pts=model.filter(e=>e.type==="INSERT"&&e.insertionPoint).map(e=>e.insertionPoint);const hit=pts.filter(p=>inPlan(p.x,p.y)).length;if(pts.length&&hit<pts.length*0.05)plan=[]}
+  // ---- explode
+  const mat=(e)=>{const sx=e.xScale??1,sy=e.yScale??1,r=e.rotation||0,p=e.insertionPoint||{x:0,y:0},bp=B[e.name]?.basePoint||{x:0,y:0};const c=Math.cos(r),s=Math.sin(r);const a=c*sx,b=s*sx,cc=-s*sy,d=c*sy;return [a,b,cc,d,p.x-(a*bp.x+cc*bp.y),p.y-(b*bp.x+d*bp.y)]};
+  const mul=(m,n)=>[m[0]*n[0]+m[2]*n[1],m[1]*n[0]+m[3]*n[1],m[0]*n[2]+m[2]*n[3],m[1]*n[2]+m[3]*n[3],m[0]*n[4]+m[2]*n[5]+m[4],m[1]*n[4]+m[3]*n[5]+m[5]];
+  const ap=(m,x,y)=>[m[0]*x+m[2]*y+m[4],m[1]*x+m[3]*y+m[5]];
+  const scl=m=>Math.sqrt(Math.abs(m[0]*m[3]-m[1]*m[2]));
+  const geom=(e,m)=>{const t=e.type,out=[];
+    if(t==="LINE"&&e.startPoint&&e.endPoint)out.push([ap(m,e.startPoint.x,e.startPoint.y),ap(m,e.endPoint.x,e.endPoint.y)]);
+    else if((t==="LWPOLYLINE"||t==="POLYLINE2D"||t==="POLYLINE")&&e.vertices){const v=e.vertices.map(q=>q.point||q);const pts=v.map(q=>ap(m,q.x,q.y));if(((e.flag||e.flags||0)&1)&&pts.length>2)pts.push(pts[0]);for(let i=1;i<pts.length;i++)out.push([pts[i-1],pts[i]])}
+    else if((t==="ARC"||t==="CIRCLE")&&e.center){let a0=t==="CIRCLE"?0:e.startAngle||0,a1=t==="CIRCLE"?2*Math.PI:e.endAngle||0;if(a1<a0)a1+=2*Math.PI;const n=Math.max(6,Math.ceil((a1-a0)/0.3));let pr=null;for(let i=0;i<=n;i++){const a=a0+(a1-a0)*i/n;const p=ap(m,e.center.x+e.radius*Math.cos(a),e.center.y+e.radius*Math.sin(a));if(pr)out.push([pr,p]);pr=p}}
+    return out};
+  const disp=[];let nseg=0;const MAXSEG=350000;const inserts=[];const texts=[];const layLen={};let lh=0;
+  const lay=(e,inh)=>(e.layer&&e.layer!=="0")||!inh?e.layer||"0":inh;
+  const walk=(ents,m,inh,depth,chain,parentIdx)=>{
+    for(const e of ents){const L=lay(e,inh);
+      if(e.type==="INSERT"){const b=B[e.name];const mm=mul(m,mat(e));const ip=e.insertionPoint||{x:0,y:0};const [x,y]=ap(m,ip.x,ip.y);
+        const idx=inserts.length;inserts.push({name:e.name,layer:L,x,y,m:mm,depth,chain,parent:parentIdx,attr:(e.attribs||[]).map(a=>cleanTxt(a.text)).join(" ")});
+        if(b&&depth<8)walk(b.entities||[],mm,L,depth+1,chain.concat(e.name),idx);continue}
+      if(e.type==="TEXT"||e.type==="MTEXT"||e.type==="ATTRIB"){const p=e.startPoint||e.insertionPoint;if(p){const [x,y]=ap(m,p.x,p.y);texts.push({x,y,str:cleanTxt(e.text),layer:L,h:(e.textHeight||e.height||2.5)*scl(m)})}continue}
+      if(nseg<MAXSEG){const g=geom(e,m);if(g.length){nseg+=g.length;let h=null;
+        if(depth===0&&e.type!=="CIRCLE"&&!(e.type==="ARC"&&g.length>=40)){let len=0;for(const [a,b] of g)len+=Math.hypot(b[0]-a[0],b[1]-a[1]);const mid=g[Math.floor(g.length/2)][0];
+          if(len>0){h="l"+(++lh);(layLen[L]=layLen[L]||[]).push([len,h,mid[0],mid[1],g[0][0],g[g.length-1][1]])}}
+        disp.push({type:"LINE",layer:L,pts:g.flatMap((s,i)=>i?[s[1]]:[s[0],s[1]]),h,len:0,area:0})}}
+    }};
+  walk(model,[1,0,0,1,0,0],null,0,[],-1);
+  // drawings often keep the real systems layout outside the sheet's viewports → then use the whole model, minus detail/legend areas
+  dz=texts.filter(t=>/TYPICAL|DETAIL|SECTION|LEGEND|SCHEDULE|SINGLE\s*LINE|RISER|DIAGRAM|รายละเอียด|ตารางสัญลักษณ์/i.test(t.str)).map(t=>[t.x,t.y]);
+  if(plan.length){let a=0,b=0;for(const ins of inserts){if(ins.depth>0)continue;const s=layerSys(ins.layer);if(!s||s==="non")continue;if(inVp(ins.x,ins.y))a++;else if(!inDet(ins.x,ins.y))b++}
+    for(const L in layLen){const s=layerSys(L);if(!s||s==="non")continue;for(const it of layLen[L]){if(inVp(it[2],it[3]))a+=0.05;else if(!inDet(it[2],it[3]))b+=0.05}}
+    if(a<1&&b>0)usePlan=false}
+  // ---- pipe blocks: centerline + parallel outline
+  const pipeInfo={};
+  const blockPipe=(bn)=>{if(bn in pipeInfo)return pipeInfo[bn];const b=B[bn];let res=null;
+    const curvy=b&&b.entities&&b.entities.some(e=>/^(ARC|CIRCLE|ELLIPSE|SPLINE|INSERT|SOLID|3DFACE)$/.test(e.type));
+    if(b&&b.entities&&!curvy){const cl=[],ol=[];for(const e of b.entities){if(e.type!=="LINE"&&e.type!=="LWPOLYLINE")continue;const g=geom(e,[1,0,0,1,0,0]);(e.type==="LINE"&&isCenterLt(e.lineType)?cl:ol).push(...g)}
+      if(cl.length){let L=0,rs=new Map();for(const [a,b2] of cl){const l=Math.hypot(b2[0]-a[0],b2[1]-a[1]);if(l<1e-9)continue;L+=l;const ux=(b2[0]-a[0])/l,uy=(b2[1]-a[1])/l;
+          for(const [p,q] of ol){const l2=Math.hypot(q[0]-p[0],q[1]-p[1]);if(l2<l*0.3)continue;const vx=(q[0]-p[0])/l2,vy=(q[1]-p[1])/l2;if(Math.abs(ux*vx+uy*vy)<0.995)continue;const d=Math.abs(-uy*((p[0]+q[0])/2-a[0])+ux*((p[1]+q[1])/2-a[1]));if(d<1e-6)continue;const k=Math.round(d*10)/10;rs.set(k,(rs.get(k)||0)+Math.min(l,l2))}}
+        if(L>0){let r=null,w=0;for(const [k,v] of rs)if(v>w){w=v;r=k}res={len:L,r,segs:cl}}}}
+    return pipeInfo[bn]=res};
+  const isPipe=new Set();const pipes=[];
+  inserts.forEach((ins,i)=>{const pi=blockPipe(ins.name);if(!pi)return;if(ins.parent>=0&&isPipe.has(ins.parent))return;isPipe.add(i);
+    const s=scl(ins.m);const ppr=/PPR|PP-R|HDPE|PB\b/i.test(ins.layer);const od=pi.r?2*pi.r*s*unit*1000:null;
+    const segs=pi.segs.map(([a,b])=>[ap(ins.m,a[0],a[1]),ap(ins.m,b[0],b[1])]);const mx=(segs[0][0][0]+segs[0][1][0])/2,my=(segs[0][0][1]+segs[0][1][1])/2;
+    if(!inPlan(mx,my))return;if(od&&!nominalFromOD(od,ppr)&&od>12)return;if(BAD_PIPE_LAYER.test(ins.layer)||ANON.test(ins.layer))return;pipes.push({layer:ins.layer,name:ins.name,len:pi.len*s*unit,od,size:od?nominalFromOD(od,ppr):null,segs,mx,my,depth:ins.depth,chain:ins.chain.join('>')})});
+  const fl=pipes.reduce((a,p)=>{a[/FP|FIRE|SPK|SPRINK|ดับเพลิง/i.test(p.layer)?0:1]+=p.len;return a},[0,0]);
+  const fireCtx=fl[0]>fl[1]||/FP|FIRE|ดับเพลิง|SPRINK/i.test(name);
+  const bcC={};const blockCenter=bn=>{if(bn in bcC)return bcC[bn];const b=B[bn];let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+    for(const e of (b&&b.entities)||[]){const g=geom(e,[1,0,0,1,0,0]);for(const sg of g)for(const q of sg){if(q[0]<x0)x0=q[0];if(q[0]>x1)x1=q[0];if(q[1]<y0)y0=q[1];if(q[1]>y1)y1=q[1]}
+      if(e.type==="INSERT"&&e.insertionPoint){const q=e.insertionPoint;if(q.x<x0)x0=q.x;if(q.x>x1)x1=q.x;if(q.y<y0)y0=q.y;if(q.y>y1)y1=q.y}}
+    return bcC[bn]=isFinite(x0)?[(x0+x1)/2,(y0+y1)/2]:null};
+  for(const ins of inserts){const c=blockCenter(ins.name);if(c){const [x,y]=ap(ins.m,c[0],c[1]);ins.x=x;ins.y=y}}
+  // ---- the drawing's own legend (SYMBOLS / DESCRIPTION table): which block means what
+  const LG={},lz=[];
+  const hdrs=texts.filter(t=>/^(SYMBOLS?|LEGEND|สัญลักษณ์)$/i.test(String(t.str).trim()));
+  for(const hd of hdrs){const Hh=Math.max(hd.h||0,1e-9);
+    const rows=texts.filter(t=>t!==hd&&t.y<hd.y+Hh&&t.y>hd.y-70*Hh&&t.x>hd.x-8*Hh&&t.x<hd.x+70*Hh&&/[A-Za-z\u0E00-\u0E7F]{3}/.test(t.str)&&!/^(DESCRIPTION|SYMBOLS?|LEGEND|REMARK|NOTE)/i.test(String(t.str).trim()));
+    if(rows.length<2)continue;let x0=hd.x,y0=hd.y,x1=hd.x,y1=hd.y;
+    const pairs=[];
+    for(const t of rows){const H2=Math.max(t.h||Hh,1e-9);const ty=t.y+0.5*H2;x0=Math.min(x0,t.x);y0=Math.min(y0,t.y);x1=Math.max(x1,t.x+String(t.str).length*H2);y1=Math.max(y1,t.y+H2);
+      for(const ins of inserts){if(ins.depth>0||/GRID|AXIS|NORTH|TITLE/i.test(ins.name))continue;const dy=Math.abs(ins.y-ty),dx=t.x-ins.x;if(dy<1.6*H2&&dx>-H2&&dx<35*H2)pairs.push([Math.abs(dx)/H2+dy/H2*4,t,ins])}}
+    pairs.sort((a,b)=>a[0]-b[0]);const tU=new Set(),iU=new Set();
+    for(const [sc,t,ins] of pairs){if(tU.has(t)||iU.has(ins))continue;tU.add(t);iU.add(ins);x0=Math.min(x0,ins.x);if(!LG[ins.name])LG[ins.name]=String(t.str).trim()}
+    // a legend row can show more than one symbol (e.g. two styles of EXIT SIGN): give leftover symbols on the row the same meaning
+    for(const [sc,t,ins] of pairs){if(iU.has(ins)||!tU.has(t))continue;const H2=Math.max(t.h||Hh,1e-9);if(Math.abs(ins.y-(t.y+0.5*H2))>0.9*H2)continue;
+      if(pairs.some(([s2,t2,i2])=>i2===ins&&t2!==t&&s2<sc))continue;iU.add(ins);x0=Math.min(x0,ins.x);if(!LG[ins.name])LG[ins.name]=String(t.str).trim()}
+    lz.push([x0-3*Hh,y0-3*Hh,x1+3*Hh,y1+3*Hh])}
+  const inLegend=(x,y)=>lz.some(z=>x>=z[0]&&x<=z[2]&&y>=z[1]&&y<=z[3]);
+  // shape signature of a block (normalised, so differently-named copies of the same symbol match)
+  const sgC={};const blkSig=bn=>{if(bn in sgC)return sgC[bn];const segs=[];
+    const rec=(n,m,d)=>{for(const e of B[n]?.entities||[]){if(e.type==="INSERT"){if(d<4&&B[e.name])rec(e.name,mul(m,mat(e)),d+1);continue}for(const [a,b2] of geom(e,m))segs.push([a,b2])}};rec(bn,[1,0,0,1,0,0],0);
+    if(segs.length<2||segs.length>400)return sgC[bn]=null;let x0=1e18,y0=1e18,x1=-1e18,y1=-1e18;for(const [a,b2] of segs)for(const q of [a,b2]){x0=Math.min(x0,q[0]);y0=Math.min(y0,q[1]);x1=Math.max(x1,q[0]);y1=Math.max(y1,q[1])}
+    const S=Math.max(x1-x0,y1-y0)||1,cx=(x0+x1)/2,cy=(y0+y1)/2;return sgC[bn]={w:(x1-x0)/S,h:(y1-y0)/S,p:segs.map(([a,b2])=>[((a[0]+b2[0])/2-cx)/S,((a[1]+b2[1])/2-cy)/S,Math.hypot(b2[0]-a[0],b2[1]-a[1])/S])}};
+  const sameShape=(A,Bs)=>{if(!A||!Bs)return false;const L=t=>t.p.reduce((s,q)=>s+q[2],0);if(Math.abs(L(A)-L(Bs))>0.12*L(A))return false;
+    const T=[[1,0,0,1],[-1,0,0,1],[1,0,0,-1],[-1,0,0,-1],[0,-1,1,0],[0,1,-1,0],[0,1,1,0],[0,-1,-1,0]];
+    for(const [a,b2,c,d] of T){let hit=0;for(const q of A.p){const x=a*q[0]+b2*q[1],y=c*q[0]+d*q[1];if(Bs.p.some(r=>Math.abs(r[0]-x)<0.06&&Math.abs(r[1]-y)<0.06&&Math.abs(r[2]-q[2])<0.08))hit++}if(hit>=0.85*A.p.length)return true}return false};
+  const ibt={};const innerTxt=bn=>{if(bn in ibt)return ibt[bn];const t=[];const rec=(n,d)=>{for(const e of B[n]?.entities||[]){if(/TEXT|ATTDEF/.test(e.type)){const v=cleanTxt(e.text||e.tag||"").toUpperCase();if(v)t.push(v)}else if(e.type==="INSERT"&&d<4)rec(e.name,d+1)}};rec(bn,0);return ibt[bn]=t.sort().join(" ")};
+  const lgNames=Object.keys(LG);const lgOf={};const meaning=bn=>{if(bn in lgOf)return lgOf[bn];if(LG[bn])return lgOf[bn]=LG[bn];if(/GRID|AXIS|NORTH|TITLE|BORDER|XREF|LEVEL/i.test(bn))return lgOf[bn]=null;const sg=blkSig(bn);
+    for(const n of lgNames){const s2=blkSig(n);if(!sg||!s2||innerTxt(bn)!==innerTxt(n))continue;if(Math.abs(sg.p.length-s2.p.length)>Math.max(3,0.35*s2.p.length))continue;if(sameShape(sg,s2)&&sameShape(s2,sg))return lgOf[bn]=LG[n]}return lgOf[bn]=null};
+  // looser look-alike (draftsman variants of the same symbol): best legend entry by matched-segment share
+  const looseScore=(A,Bs)=>{const T=[[1,0,0,1],[-1,0,0,1],[1,0,0,-1],[-1,0,0,-1],[0,-1,1,0],[0,1,-1,0],[0,1,1,0],[0,-1,-1,0]];let best=0;
+    for(const [a,b2,c,d] of T){let hit=0;for(const q of A.p){const x=a*q[0]+b2*q[1],y=c*q[0]+d*q[1];if(Bs.p.some(r=>Math.abs(r[0]-x)<0.14&&Math.abs(r[1]-y)<0.14&&Math.abs(r[2]-q[2])<0.1))hit++}best=Math.max(best,hit/A.p.length)}return best};
+  const lkOf={};const lookAlike=bn=>{if(bn in lkOf)return lkOf[bn];if(/GRID|AXIS|NORTH|TITLE|BORDER|XREF|LEVEL/i.test(bn))return lkOf[bn]=null;const sg=blkSig(bn);if(!sg||sg.p.length<8)return lkOf[bn]=null;let bestN=null,bs=0;
+    for(const n of lgNames){const s2=blkSig(n);if(!s2||s2.p.length<8||innerTxt(bn)!==innerTxt(n))continue;if(Math.abs(sg.p.length-s2.p.length)>0.25*s2.p.length)continue;if(Math.abs(sg.w-s2.w)>0.2||Math.abs(sg.h-s2.h)>0.2)continue;
+      const sc=Math.min(looseScore(sg,s2),looseScore(s2,sg));if(sc>bs){bs=sc;bestN=n}}return lkOf[bn]=bs>=0.7?LG[bestN]:null};
+  const underPipe=i=>{let p=inserts[i].parent;while(p>=0){if(isPipe.has(p))return true;p=inserts[p].parent}return false};
+  // size labels near pipes (fallback when outline width unknown)
+  const lbl=texts.filter(t=>/ø|DIA/i.test(t.str)&&inPlan(t.x,t.y)).map(t=>({...t,z:parseSizes(t.str)})).filter(t=>t.z.inch||t.z.mm);
+  for(const p of pipes){if(p.size)continue;const [a]=p.segs[0];let best=null,bd=Infinity;for(const t of lbl){const d=(t.x-a[0])**2+(t.y-a[1])**2;if(d<bd){bd=d;best=t}}if(best&&bd<(3/unit)**2){p.size=best.z.inch||MM_IN[best.z.mm]||null;p.fromLabel=true}}
+  // ---- display ents for pipes + takeoffs
+  const out=[];let hseq=0;const H=()=>"c"+(++hseq);
+  const pg={};for(const p of pipes){const k=p.layer+"|"+(p.size||"?");(pg[k]=pg[k]||{layer:p.layer,size:p.size,len:0,n:0,hs:[],lab:0}).len+=p.len;const g=pg[k];g.n++;if(p.fromLabel)g.lab++;(g.items=g.items||[]).push([+p.len.toFixed(3),Math.round(p.mx),Math.round(p.my),p.name]);
+    for(const [a,b] of p.segs){const h=H();disp.push({type:"LINE",layer:p.layer,pts:[a,b],h,len:0,area:0});g.hs.push(h)}}
+  for(const k in pg){const g=pg[k];out.push({id:`${name}|cadpipe|${k}`,file:name,kind:"auto",mtype:"len",label:`ท่อ ${g.layer}${g.size?` ø${g.size}"`:" (ไม่ทราบขนาด)"}`,layer:g.layer,qty:g.len,unit:"ม.",
+    sizeHint:g.size?{inch:g.size}:null,hint:"PIPE",refs:{handles:g.hs},items:g.items,src:`${name} · Layer ${g.layer} · ${g.n} ท่อน · วัดตามเส้นศูนย์กลาง${g.size?(g.lab?" · ขนาดจากป้ายในแบบ":" · ขนาดจากความกว้างท่อในแบบ"):""}${usePlan&&plan.length?" · เฉพาะแปลนในแผ่นงาน":plan.length?" · ทั้งแบบ (งานระบบอยู่นอกกรอบแผ่นงาน) ไม่รวมรายละเอียด":""}`})}
+  // ---- equipment symbols (dedupe nested/duplicate at same spot)
+  const R=0.35/unit;const found={};const symDbg=[];const usedIns=new Set();
+  const lgCount={};
+  if(lgNames.length)inserts.forEach((ins,i)=>{if(ins.depth>0||isPipe.has(i)||!inPlan(ins.x,ins.y)||inLegend(ins.x,ins.y))return;let ds=meaning(ins.name),loose=false;if(!ds&&(ds=lookAlike(ins.name)))loose=true;if(!ds)return;usedIns.add(i);if(loose)ds=ds+" ";
+    const g=lgCount[ds]=lgCount[ds]||{pts:[],names:new Set(),layers:new Set(),loose:false};if(g.pts.some(p=>(p[0]-ins.x)**2+(p[1]-ins.y)**2<R*R))return;g.pts.push([ins.x,ins.y]);g.names.add(ins.name);g.layers.add(ins.layer)});
+  inserts.forEach((ins,i)=>{if(usedIns.has(i)||isPipe.has(i)||underPipe(i))return;if(!inPlan(ins.x,ins.y)||inLegend(ins.x,ins.y))return;
+    const nm=ANON.test(ins.name)?"":ins.name;if(!nm&&!ins.attr)return;if(/\$0\$/.test(ins.layer+nm)||FITTING.test(nm)||ARCH_LAYER.test(ins.layer)||/-\d{6,}-|LEVEL\s*\d|Copy\s*\d/i.test(nm))return;
+    if(/^(BOLT|NUT|ARROW|ARRW|HANG|SUPPORT|_ARCH|_OPEN|_DOT|_CLOSED|_NONE|TICK|DIM|AXIS|GRID|NORTH|TITLE|BORDER|LOGO|TREE|CAR|TOILET-?PART)/i.test(nm))return;
+    if(NOISE.test(ins.layer)&&!/SPK|SPRINK|FHC|VALVE|VAL|FIRE/i.test(ins.layer+nm))return;
+    const t={label:nm||ins.attr,layer:"",block:nm,hint:[ins.attr,fireCtx?"FIRE":""].join(" "),mtype:"count",unit:"จุด",file:name,kind:"auto"};
+    let m=matchTakeoff(t);
+    if((!m||!m.length)&&/SPK|SPRINK|SMOKE|HEAT|FHC|DOWN\s*LIGHT|(^|[^A-Z])DL([^A-Z]|$)|OUTLET|RECEP|EXIT|EMERG/i.test(ins.layer)&&!/PIPE|LEADER|TEXT|DIM/i.test(ins.layer)&&blockSize(ins.name)>=3)m=matchTakeoff({...t,layer:ins.layer});
+    if(m&&m.length&&/^FP-SPK/.test(m[0].code)){const ht=headType(ins.name);m=[{...m[0],code:ht==='UPRIGHT'?'FP-SPK-E':'FP-SPK-C',ht}]}if(!m||!m.length)return;const code=m[0].code;const key=m[0].ht?code+'|'+m[0].ht:code;
+    if(m[0].ht&&Object.keys(found).some(k=>k.startsWith('FP-SPK')&&found[k].pts.some(p=>(p[0]-ins.x)**2+(p[1]-ins.y)**2<R*R)))return;
+    const f=found[key]=found[key]||{pts:[],names:new Set(),layers:new Set(),conf:m[0].conf,note:m[0].note,ht:m[0].ht,code};
+    usedIns.add(i);if(f.pts.some(p=>(p[0]-ins.x)**2+(p[1]-ins.y)**2<R*R))return;f.pts.push([ins.x,ins.y]);f.names.add(nm||ins.attr);f.layers.add(ins.layer);symDbg.push([key,Math.round(ins.x),Math.round(ins.y),nm,ins.layer,ins.chain.join('>'),ins.depth])});
+  // equipment named only in plan text (e.g. FLOOR CONTROL VALVE, FIRE HOSE CABINET)
+  const R2=2.5/unit;
+  for(const t of texts){if(!inPlan(t.x,t.y)||!t.str||t.str.length>48||/SEE\s|DWG|LEGEND|NOTE|TYP|SCHEDULE|SECTION/i.test(t.str))continue;
+    if(!/FLOOR\s*CONTROL|\bFCV\b|FIRE\s*HOSE|\bFHC\b|FIRE\s*PUMP|JOCKEY|\bFDC\b|SIAMESE|ALARM\s*CHECK|FIRE\s*ALARM\s*CONTROL|\bMDB\b|LOAD\s*CENTER/i.test(t.str))continue;
+    const m=matchTakeoff({label:t.str,layer:t.layer,mtype:"count",unit:"จุด",file:name,kind:"auto",hint:fireCtx?"FIRE":""});if(!m||!m.length)continue;const code=m[0].code;
+    const f=found[code]=found[code]||{pts:[],names:new Set(),layers:new Set(),conf:2,note:"นับจากข้อความในแปลน",code};
+    if(f.pts.some(p=>(p[0]-t.x)**2+(p[1]-t.y)**2<R2*R2))continue;f.pts.push([t.x,t.y]);f.names.add("ข้อความ “"+t.str+"”");f.layers.add(t.layer)}
+  // ---- any other symbol block (names like A$C…): count per block+layer, classify by layer / text inside the block
+  const btC={};const blockText=bn=>{if(bn in btC)return btC[bn];const t=[];for(const e of B[bn]?.entities||[])if(/TEXT|ATTDEF/.test(e.type)){const s=cleanTxt(e.text||e.tag||"");if(s&&s.length<=12)t.push(s)}return btC[bn]=t.join(" ")};
+  const gen={};
+  inserts.forEach((ins,i)=>{if(usedIns.has(i)||isPipe.has(i)||underPipe(i)||ins.depth>0||!inPlan(ins.x,ins.y)||inLegend(ins.x,ins.y))return;const nm=ins.name;if(!nm||/^\*/.test(nm)||!B[nm])return;
+    if(ARCH_LAYER.test(ins.layer)||NOISE.test(ins.layer)||FITTING.test(nm)||/XREF|GRID|NORTH|TITLE|BORDER|LOGO|LEVEL|SECTION|ARROW|ARR\b|^AR$|TICK|DOT|LEADER|DIM/i.test(nm))return;
+    if(RX_NON.test(UP(nm))&&!sysText(nm))return;const bs=blockSize(nm);if(bs<1||bs>300)return;
+    const tx=blockText(nm)+" "+(ins.attr||"");const ls=layerSys(ins.layer)||"";const k=nm+"|"+ins.layer;
+    const g=gen[k]=gen[k]||{name:nm,layer:ins.layer,tx:tx.trim(),pts:[],ls};if(g.pts.some(p=>(p[0]-ins.x)**2+(p[1]-ins.y)**2<R*R))return;g.pts.push([ins.x,ins.y])});
+  for(const k in gen){const g=gen[k];if(!g.ls&&!sysText(g.name+" "+g.tx)&&g.pts.length<2)continue;if(g.ls==="non")continue;
+    const hs=g.pts.map(([x,y])=>{const h=H();disp.push({type:"INSERT",layer:g.layer,cx:x,cy:y,r:0,h,len:0,area:0});return h});
+    const anon=/^[AG]\$C[0-9A-F]+$/i.test(g.name);
+    const what=[[/EMER|ฉุกเฉิน/i,"โคม/อุปกรณ์ไฟฉุกเฉิน"],[/EXIT/i,"ป้ายทางออก"],[/CCTV|CAMERA/i,"กล้อง CCTV"],[/WIFI|WI-FI|\bAP\b|ACCESS\s*POINT/i,"จุด WiFi / Access Point"],[/TEL|PHONE/i,"เต้ารับโทรศัพท์"],[/LAN|DATA|UTP/i,"เต้ารับ LAN/Data"],[/MATV|\bTV\b/i,"เต้ารับทีวี"],
+      [/FA\b|FIRE\s*AL|SMOKE|HEAT|BELL|HORN/i,"อุปกรณ์แจ้งเหตุเพลิงไหม้"],[/OUT|REC|SOCKET|PLUG/i,"เต้ารับ"],[/SW\b|SWITCH/i,"สวิตช์"],[/DOW|DL\b|DOWN/i,"โคมดาวน์ไลท์"],[/LIG|LIGHT|LAMP|LUM/i,"โคมไฟ"],[/JUNC|\bJ\b|BOX/i,"กล่องต่อสาย"]].find(([re])=>re.test(g.layer+" "+g.name+" "+g.tx));
+    out.push({id:`${name}|cadblk|${k}`,file:name,kind:"auto",mtype:"count",label:`${what?what[1]+" · ":""}${anon?"สัญลักษณ์":"Block "+g.name}${g.tx?` [${g.tx}]`:""} · ${g.layer}`,layer:g.layer,block:anon?"":g.name,hint:g.tx,qty:g.pts.length,unit:"จุด",refs:{handles:hs},
+      src:`${name} · Block ${g.name}${g.tx?` (ข้อความในบล็อก “${g.tx}”)`:""} · Layer ${g.layer} · นับ ${g.pts.length} ตำแหน่ง${usePlan&&plan.length?" · เฉพาะแปลนในแผ่นงาน":plan.length?" · ทั้งแบบ (งานระบบอยู่นอกกรอบแผ่นงาน) ไม่รวมรายละเอียด":""}`})}
+  for(const ds in lgCount){const g=lgCount[ds];const hs=g.pts.map(([x,y])=>{const h=H();disp.push({type:"INSERT",layer:[...g.layers][0],cx:x,cy:y,r:0,h,len:0,area:0});return h});
+    const lo=ds.endsWith(" ");const dn=ds.trim();
+    out.push({id:`${name}|cadlg|${ds}`,file:name,kind:"auto",mtype:"count",label:lo?`${dn} (สัญลักษณ์คล้ายในตาราง ควรตรวจ)`:dn,looseLegend:lo,layer:[...g.layers].join(", "),block:[...g.names].join(", "),hint:dn,qty:g.pts.length,unit:"จุด",refs:{handles:hs},
+      src:`${name} · ${lo?"หน้าตาคล้าย":"ตาม"}ตารางสัญลักษณ์ในแบบ “${dn}” · Block ${[...g.names].slice(0,3).join(", ")} · นับ ${g.pts.length} ตำแหน่ง${usePlan&&plan.length?" · เฉพาะแปลนในแผ่นงาน":""}`})}
+  // ---- conduit / wiring runs drawn as plain lines on systems layers (+ wire quantities from the cable labels in the drawing)
+  const SPEC=/(\d+)\s*[-x×]\s*(\d+(?:\.\d+)?)\s*(?:\/\s*(\d+(?:\.\d+)?)\s*G)?\s*(?:SQ|ตร)/i;
+  const runs=[];
+  for(const L in layLen){const ls=layerSys(L);if(!ls||ls==="non")continue;if(pipes.some(p=>p.layer===L))continue;if(/TXT|TEXT|DIM|ANNO|GRID|HATCH|SYMB|LEGEND|TAG|NOTE|TITLE/i.test(L))continue;
+    const its=layLen[L].filter(it=>inPlan(it[2],it[3])&&!inLegend(it[2],it[3]));if(!its.length)continue;const tot=its.reduce((t,it)=>t+it[0],0);if(tot*unit<0.5||tot/its.length*unit<0.3)continue;
+    for(const it of its)runs.push({L,len:it[0],h:it[1],m:[it[2],it[3]],a:it[4],b:it[5],spec:null})}
+  const specT=texts.filter(t=>t.str&&SPEC.test(t.str)&&inPlan(t.x,t.y)&&!inLegend(t.x,t.y));
+  for(const t of specT){let best=null,bd=(3/unit)**2;for(const r of runs)for(const q of [r.a,r.b,r.m]){const d=(q[0]-t.x)**2+(q[1]-t.y)**2;if(d<bd){bd=d;best=r}}if(best&&!best.spec)best.spec=t.str}
+  const near=(p,q)=>(p[0]-q[0])**2+(p[1]-q[1])**2<(0.25/unit)**2;
+  for(let k=0;k<30;k++){let ch=false;for(const r of runs){if(r.spec)continue;const o=runs.find(o=>o.spec&&o.L===r.L&&(near(o.a,r.a)||near(o.a,r.b)||near(o.b,r.a)||near(o.b,r.b)));if(o){r.spec=o.spec;r.inh=true;ch=true}}if(!ch)break}
+  const byL={};for(const r of runs)(byL[r.L]=byL[r.L]||[]).push(r);
+  for(const L in byL){const rs=byL[L];const cnt={};for(const r of rs)if(r.spec&&!r.inh)cnt[r.spec]=(cnt[r.spec]||0)+1;const maj=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0];
+    for(const r of rs)if(!r.spec&&maj){r.spec=maj[0];r.guess=true}
+    const len=rs.reduce((t,r)=>t+r.len,0);const sp=[...new Set(rs.map(r=>r.spec).filter(Boolean))];
+    const conduit=sp.map(x=>(x.match(/IN\s*(?:ø|%%C)?\s*([\d\s\/]+)"?\s*(EMT|IMC|RSC|PVC|FLEX)?/i)||[])[0]).filter(Boolean)[0]||"";
+    out.push({id:`${name}|cadlen|${L}`,file:name,kind:"auto",mtype:"len",label:`แนวท่อ/สาย ${L}${conduit?` (${conduit.trim()})`:""}`,layer:L,hint:conduit,qty:len*unit,unit:"ม.",refs:{handles:rs.map(r=>r.h)},
+      src:`${name} · Layer ${L} · ${rs.length} เส้น · ความยาวแนวท่อตามแปลน${usePlan&&plan.length?" · เฉพาะแปลนในแผ่นงาน":""} · ไม่รวมแนวดิ่ง${sp.length?` · ป้ายในแบบ: ${sp.slice(0,3).join(" | ")}`:""}`})}
+  const wDrop=+(P.auto?.wDrop)||0,wTerm=+(P.auto?.wTerm)||0,wWaste=+(P.auto?.wWaste)||0,wDef=(P.auto?.wDef||"").trim();
+  const UTP=/UTP|CAT\s*[56]|FTP|LAN|COAX|RG\s*6|FIBER/i;
+  const utL={};for(const t of texts){if(!t.str||!UTP.test(t.str)||SPEC.test(t.str)||!inPlan(t.x,t.y)||inLegend(t.x,t.y))continue;
+    let best=null,bd=(3/unit)**2;for(const r of runs){if(byL[r.L].some(o=>o.spec))continue;for(const q of [r.a,r.b,r.m]){const d=(q[0]-t.x)**2+(q[1]-t.y)**2;if(d<bd){bd=d;best=r}}}if(best&&!utL[best.L])utL[best.L]=t.str}
+  for(const L in byL){const rs=byL[L];if(rs.some(r=>r.spec))continue;
+    if(utL[L]){for(const r of rs){r.spec=utL[L];r.utp=true}continue}
+    if(wDef&&layerSys(L)===C_E&&SPEC.test(wDef.replace(/(SQ|ตร)?\s*$/i," SQ")))for(const r of rs){r.spec=wDef.replace(/\s*(SQ.*|ตร.*)?$/i," SQ.MM");r.def=true}}
+  // device points (counted symbols) → each one adds a vertical drop on the run that reaches it
+  const devPts=[];for(const ds in lgCount)for(const p of lgCount[ds].pts)devPts.push(p);for(const k in found)for(const p of found[k].pts)devPts.push(p);
+  const dR2=(0.6/unit)**2;let nDev=0;
+  for(const p of devPts){let best=null,bd=dR2;for(const r of runs){if(!r.spec)continue;for(const q of [r.a,r.b]){const d=(q[0]-p[0])**2+(q[1]-p[1])**2;if(d<bd){bd=d;best=r}}}if(best){best.ndev=(best.ndev||0)+1;nDev++}}
+  const termL={};for(const r of runs)if(r.spec)termL[r.L+"|"+r.spec]=r;  // one termination allowance per layer+cable type
+  const W={};const add=(k,o,len,r)=>{const w=W[k]=W[k]||Object.assign({len:0,plan:0,dev:0,hs:new Set(),guess:false,def:false,src:new Set()},o);w.len+=len;w.hs.add(r.h);w.src.add(r.spec);if(r.guess)w.guess=true;if(r.def)w.def=true};
+  for(const r of runs){if(!r.spec)continue;const extra=((r.ndev||0)*wDrop+(termL[r.L+"|"+r.spec]===r?wTerm:0))/unit;
+    if(r.utp){const nm=(r.spec.match(/(?:UTP|FTP)?\s*CAT\s*\d+\w?|UTP|FTP|COAX|RG\s*6|FIBER/i)||["UTP"])[0].replace(/\s+/g," ").toUpperCase();const nn=+((r.spec.match(/^\s*(\d+)\s*[-x×]/)||[])[1]||1);
+      add(nm+"|U",{sz:nm,utp:true},(r.len+extra)*nn,r);W[nm+"|U"].plan+=r.len*nn;W[nm+"|U"].dev+=(r.ndev||0);continue}
+    const m=SPEC.exec(r.spec);if(!m)continue;const n=+m[1],sz=m[2],gz=m[3];
+    add(sz+"|L",{sz,g:false},(r.len+extra)*n,r);W[sz+"|L"].plan+=r.len*n;W[sz+"|L"].dev+=(r.ndev||0);
+    if(gz){add(gz+"|G",{sz:gz,g:true},r.len+extra,r);W[gz+"|G"].plan+=r.len;W[gz+"|G"].dev+=(r.ndev||0)}}
+  for(const k in W)W[k].len*=1+wWaste/100;
+  const allow=[wDrop?`แนวดิ่ง ${wDrop} ม./จุด`:"",wTerm?`ปลายสาย ${wTerm} ม./แนว`:"",wWaste?`เผื่อ ${wWaste}%`:""].filter(Boolean).join(", ");
+  for(const k in W){const w=W[k];const what=w.utp?`สาย ${w.sz}`:`${w.g?"สายดิน":"สายไฟ"} ${w.sz} ตร.มม.`;
+    out.push({id:`${name}|cadwire|${k}`,file:name,kind:"auto",mtype:"len",label:`${what} (${w.utp?"ตามแนวท่อ":"จำนวนเส้นตามป้าย × แนวท่อ"}${allow?" + เผื่อ":""})${w.def?" (ขนาดตามที่ตั้งค่า ควรตรวจ)":""}`,layer:"WIRE",hint:w.utp?`${w.sz} CABLE`:`THW ${w.sz} SQ.MM WIRE`,qty:w.len*unit,unit:"ม.",
+    refs:{handles:[...w.hs]},conf:w.def?1:2,note:allow?`รวม ${allow}`:"ยังไม่รวมแนวดิ่ง/ปลายสาย ตั้งค่าได้ในตั้งค่าถอดอัตโนมัติ",
+    src:`${name} · ${what} = แนวท่อ ${(w.plan*unit).toFixed(2)} ม.(คูณจำนวนเส้นแล้ว)${allow?` + ${allow} (${w.dev} จุดอุปกรณ์)`:" · ยังไม่รวมแนวดิ่งขึ้น-ลงและปลายสายที่ตู้/กล่อง"} · ป้าย: ${[...w.src].slice(0,3).join(" | ")}${w.guess?" · บางเส้นใช้ป้ายของ Layer เดียวกัน":""}${w.def?" · แนวนี้ไม่มีป้ายในแบบ ใช้ขนาดที่ตั้งค่าไว้":""}`})}
+  for(const key in found){const f=found[key];const code=f.code||key;const p=priceBy(code);const hs=f.pts.map(([x,y])=>{const h=H();disp.push({type:"INSERT",layer:[...f.layers][0],cx:x,cy:y,r:0,h,len:0,area:0});return h});
+    out.push({id:`${name}|cadsym|${key}`,file:name,kind:"auto",mtype:"count",label:f.ht?`หัวสปริงเกลอร์ ${f.ht==='CONCEAL'?'Conceal':f.ht==='PENDENT'?'Pendent':'Upright'}`:`${p?p.name:code}`,headType:f.ht||null,layer:[...f.layers].join(", "),block:[...f.names].slice(0,3).join(", "),code,conf:f.conf,note:f.note,qty:f.pts.length,unit:"จุด",refs:{handles:hs},
+      src:`${name} · Block ${[...f.names].slice(0,3).join(", ")} · Layer ${[...f.layers].slice(0,3).join(", ")} · นับ ${f.pts.length} ตำแหน่ง${usePlan&&plan.length?" · เฉพาะแปลนในแผ่นงาน":plan.length?" · ทั้งแบบ (งานระบบอยู่นอกกรอบแผ่นงาน) ไม่รวมรายละเอียด":""}`})}
+  // drop pipes per sprinkler head (optional)
+  const heads=out.filter(t=>/^FP-SPK/.test(t.code||"")).reduce((s,t)=>s+t.qty,0);const drop=+(P.auto?.dropLen)||0;
+  if(heads&&drop>0)out.push({id:`${name}|caddrop`,file:name,kind:"auto",mtype:"len",label:`ท่อดร็อปหัวสปริงเกลอร์ ø1" (${heads} หัว × ${drop} ม.)`,layer:"FP-DROP",qty:heads*drop,unit:"ม.",code:"FP-BSG-1",conf:2,note:"ค่าสมมติจากการตั้งค่า",refs:{handles:[]},src:`${name} · คำนวณ ${heads} หัว × ${drop} ม./หัว`});
+  // bbox from plan or all
+  let bb=[Infinity,Infinity,-Infinity,-Infinity];const ext=(x,y)=>{if(!isFinite(x)||!isFinite(y))return;if(x<bb[0])bb[0]=x;if(y<bb[1])bb[1]=y;if(x>bb[2])bb[2]=x;if(y>bb[3])bb[3]=y};
+  if(usePlan&&plan.length)for(const v of plan){ext(v.x0,v.y0);ext(v.x1,v.y1)}else for(const d of disp){if(d.pts)for(const p of d.pts)ext(p[0],p[1])}
+  for(const d of disp){if(d.pts)d.pts=d.pts.map(p=>[p[0],p[1]])}
+  const tEnts=texts.filter(t=>t.str&&t.str.length<40).slice(0,8000).map(t=>({type:"TEXT",layer:t.layer,cx:t.x,cy:t.y,txt:t.str,th:t.h,len:0,area:0}));
+  return {disp:{ents:disp.concat(tEnts),bbox:bb,unit,cad:true},takeoffs:out,
+    info:{usePlan,legend:LG,plan:plan.length,vps:vps.length,pipes:pipes.length,sym:Object.keys(found).length,allVps:vps,found:Object.fromEntries(Object.entries(found).map(([c,f])=>[c,f.pts.map((p,i)=>[Math.round(p[0]),Math.round(p[1])])])),symDbg:symDbg,dbg:pipes.map(p=>[p.layer,p.name,+p.len.toFixed(2),p.od&&+p.od.toFixed(1),p.size,!!p.fromLabel,Math.round(p.mx),Math.round(p.my),p.chain]),planR:plan}};
+}
+
+/* ======== QTO REPORT (pipe schedule / heads / equipment) ======== */
+const SIZE_ORDER=["1/2","3/4","1","1 1/4","1 1/2","2","2 1/2","3","4","5","6","8","10","12"];
+function qtoReport(){
+  const W=+(P.auto?.pipeWaste)||0,STD=6;
+  const tos=P.takeoffs.filter(t=>P.files.some(f=>f.name===t.file));
+  const pipes=tos.filter(t=>t.mtype==="len"&&(t.sizeHint||/ท่อ/.test(t.label))&&t.layer!=="FP-DROP");
+  const drops=tos.filter(t=>t.layer==="FP-DROP");
+  const bySize={};const B_=k=>bySize[k]=bySize[k]||{plan:0,drop:0,items:[]};
+  for(const t of pipes){const k=(t.sizeHint&&(t.sizeHint.inch||(t.sizeHint.mm&&MM_IN[t.sizeHint.mm])))||"ไม่ทราบขนาด";B_(k).plan+=t.qty;(t.items||[]).forEach(it=>bySize[k].items.push({len:it[0],x:it[1],y:it[2],blk:it[3],layer:t.layer,file:t.file}))}
+  const dropLen=+(P.auto?.dropLen)||0;for(const t of drops)B_("1").drop+=t.qty;
+  const keys=Object.keys(bySize).sort((a,b)=>(SIZE_ORDER.indexOf(a)+1||99)-(SIZE_ORDER.indexOf(b)+1||99));
+  const heads=tos.filter(t=>/^FP-SPK/.test(t.code||""));
+  const eq=tos.filter(t=>t.mtype==="count"&&t.code&&!/^FP-SPK/.test(t.code));
+  const name=P.name||"โครงการ",src=[...new Set(tos.map(t=>t.file))].join(", ");
+  const S1=[[`สรุปปริมาณงานระบบท่อ — ${name}`],[`อ้างอิงแบบ ${src} | ความยาวเป็นเมตร | ถอดอัตโนมัติด้วยโปรแกรมถอดแบบ BOQ`],[],["1) สรุปท่อแยกตามขนาด"],["ขนาดท่อ (นิ้ว)","ท่อตามแปลน (ม.)","ท่อดร็อป (ม.)","ค่าเผื่อตัดท่อ (ม.)","รวมสุทธิ (ม.)","จำนวนท่อน"]];
+  let tp=0,td=0,tw=0,tn=0,tt=0;
+  for(const k of keys){const r=bySize[k];const w=(r.plan+r.drop)*W/100,tot=r.plan+r.drop+w,n=Math.ceil(tot/STD-1e-9);tp+=r.plan;td+=r.drop;tw+=w;tt+=tot;tn+=n;S1.push([k==="ไม่ทราบขนาด"?k:k+'"',+r.plan.toFixed(2),+r.drop.toFixed(2),+w.toFixed(2),+tot.toFixed(2),n])}
+  S1.push(["รวม",+tp.toFixed(2),+td.toFixed(2),+tw.toFixed(2),+tt.toFixed(2),tn],[],["2) สรุปหัวสปริงเกลอร์"],["ชนิดหัว","จำนวน (หัว)","ท่อดร็อปรวม (ม.)"]);
+  let th=0;for(const t of heads){S1.push([t.label+(t.block?` (Block ${t.block})`:""),t.qty,+(t.qty*dropLen).toFixed(2)]);th+=t.qty}
+  S1.push(["รวม",th,+(th*dropLen).toFixed(2)],[],["3) อุปกรณ์อื่นที่พบในแบบ"],["รายการ","จำนวน","หน่วย","ที่มา"]);
+  for(const t of eq){const p=priceBy(t.code);S1.push([t.label,t.qty,p?p.unit:"ชุด",t.src])}
+  const S2=[["ถอดปริมาณท่อ — รายการแต่ละท่อน"],["ลำดับ","ไฟล์","Layer","ขนาดท่อ (นิ้ว)","ความยาว (ม.)","ตำแหน่ง X","ตำแหน่ง Y","Block","ที่มาของตัวเลข"]];let i=0;
+  for(const k of keys)for(const it of bySize[k].items.sort((a,b)=>b.len-a.len))S2.push([++i,it.file,it.layer,k,it.len,it.x,it.y,it.blk,"วัดตามเส้นศูนย์กลางท่อใน CAD"]);
+  if(!i)for(const t of pipes)S2.push([++i,t.file,t.layer,(t.sizeHint&&t.sizeHint.inch)||"",+t.qty.toFixed(2),"","","",t.src]);
+  const S3=[["สมมติฐานและค่าที่ใช้คำนวณ"],["รายการ","ค่า","หน่วย","หมายเหตุ / ที่มา"],["ความยาวท่อดร็อป/Armover ต่อ 1 หัวสปริงเกลอร์",dropLen,"ม./หัว","ตั้งค่าได้ในโปรแกรม (ตั้งค่าถอดอัตโนมัติ)"],["ขนาดท่อดร็อป",'1"',"นิ้ว","ท่อ SPK มาตรฐาน"],["ค่าเผื่อตัดท่อ/เศษเหลือ",W,"%","ตั้งค่าได้ในโปรแกรม"],["ความยาวท่อมาตรฐาน 1 ท่อน",STD,"ม./ท่อน","ใช้คำนวณจำนวนท่อน"],[],["ข้อควรทราบ"],
+    ["1) ความยาวท่อวัดจากเส้นศูนย์กลางของ Block ท่อในไฟล์ CAD ขนาดท่ออ่านจากความกว้างท่อ (OD) หรือป้ายขนาดใกล้ท่อ"],["2) นับเฉพาะแปลนที่แสดงใน Viewport ของแผ่นงาน (ไม่รวม Detail / Section ที่เขียนประกอบ)"],["3) ยังไม่รวมท่อแนวดิ่ง (Riser) ที่แสดงเฉพาะใน Section และไม่รวมข้อต่อในตารางท่อ"],["4) ตรวจสอบกับแบบก่อนสั่งซื้อจริง"]];
+  return {S1,S2,S3};
+}
+/* ======== หลักการถอดปริมาณ (shown in the program and attached to every export) ======== */
+function rulesData(){const A=P.auto||{},v=x=>`[[${x}]]`,n=(x,u)=>v(`${+x||0} ${u}`);
+  return [
+  ["1. ขอบเขตงาน",[
+    mepOn()?"ถอดเฉพาะงานระบบ: ไฟฟ้า สุขาภิบาล ดับเพลิง ปรับอากาศ ไม่ถอดงานโครงสร้างและสถาปัตยกรรม (ปิดได้ที่ช่อง “เฉพาะงานระบบ”)":"ถอดทุกหมวดงาน รวมโครงสร้างและสถาปัตยกรรม (ช่อง “เฉพาะงานระบบ” ปิดอยู่)",
+    "แยกระบบจากชื่อ Layer / Block / ข้อความ เช่น EE-, E-, LT-, COM- = ไฟฟ้า · FP-, SPK- = ดับเพลิง · P-, SAN- = สุขาภิบาล · M-, AC-, DUCT = ปรับอากาศ · A-, S-, ARCH, WALL = ไม่ใช่งานระบบ",
+    "ถอดเฉพาะสิ่งที่วาดไว้ในแบบ ถ้าแบบไม่ได้แสดง (เช่น ไรเซอร์ระหว่างชั้น อุปกรณ์จับยึด ข้อต่อ) โปรแกรมจะไม่คิดให้"]],
+  ["2. ขอบเขตของแผ่นแบบ (DWG/DXF)",[
+    "ถอดเฉพาะแปลนที่อยู่ในกรอบแผ่นงาน (Viewport ใน Layout) ไม่นับสำเนาชั้นอื่นที่วางไว้นอกกรอบ",
+    "ไม่นับสัญลักษณ์ในตารางสัญลักษณ์ (SYMBOLS / LEGEND) และในรูปขยาย (DETAIL)",
+    "ถ้าในกรอบแผ่นงานไม่มีงานระบบเลย จึงถอดทั้งแบบแทน และแจ้งไว้ในช่องที่มาของรายการ",
+    "หน่วยแบบอ่านจากไฟล์ (มม./ซม./ม.) แก้ได้ที่ตัวเลือกหน่วยเหนือแบบ"]],
+  ["3. อุปกรณ์ (นับจุด)",[
+    "อ่านตารางสัญลักษณ์ในแบบก่อน: จับคู่รูปสัญลักษณ์กับคำอธิบายในแถวเดียวกัน แล้วนับ Block ในแปลนที่รูปร่างเหมือนสัญลักษณ์ในตาราง",
+    "รูปร่างเทียบได้ทั้งหมุนและกลับด้าน (8 แบบ) และตัวอักษรในสัญลักษณ์ต้องตรงกัน (เช่น EM, EXIT) เพื่อไม่ให้นับหัวกริดหรือสัญลักษณ์อื่นปนมา",
+    "แถวเดียวกันในตารางมีสัญลักษณ์ได้หลายแบบ (เช่น ป้ายทางออก 2 แบบ) นับรวมเป็นรายการเดียว",
+    "รูปที่คล้ายแต่ไม่เหมือนทุกส่วน จะขึ้นเป็น “สัญลักษณ์คล้ายในตาราง ควรตรวจ”",
+    "ตำแหน่งที่ห่างกันไม่เกิน 0.35 ม. นับเป็นจุดเดียว (กัน Block ซ้อน)",
+    "ถ้าแบบไม่มีตารางสัญลักษณ์ ใช้ชื่อ Block / Layer เทียบกับกฎในโปรแกรม (เช่น หัวสปริงเกลอร์ โคมไฟ เต้ารับ) และขึ้นเป็น “ควรตรวจ”",
+    "PDF ที่เป็นเส้นขาวดำ: ใช้เครื่องมือ “นับสัญลักษณ์เหมือนกัน” ลากกรอบรอบสัญลักษณ์ 1 ตัว โปรแกรมนับตัวที่เหมือนกันทั้งหน้า"]],
+  ["4. แนวท่อร้อยสาย / แนวสาย",[
+    "ความยาว = ผลรวมความยาวเส้นบน Layer งานระบบแต่ละ Layer ตามแปลน (ระยะราบ 2 มิติ) ไม่รวม Layer ข้อความ มิติ กริด ลายแฮทช์",
+    "ขนาดท่อร้อยสายอ่านจากป้ายในแบบ เช่น “IN 1/2\" EMT”",
+    "ไม่รวมแนวดิ่งของท่อ (ขึ้น-ลงจากฝ้า ไรเซอร์) เพราะแปลนไม่มีความสูงให้วัด"]],
+  ["5. สายไฟ",[
+    "อ่านป้ายขนาดสายในแบบ รูปแบบ “จำนวนเส้น-ขนาด/ขนาดสายดิน G” เช่น 2-4/2.5G Sq.mm. = สายไฟ 4 ตร.มม. 2 เส้น + สายดิน 2.5 ตร.มม. 1 เส้น",
+    "ป้ายแต่ละอันใช้กับแนวสายที่ใกล้ที่สุด (ไม่เกิน 3 ม.) แนวที่ต่อกันบน Layer เดียวกันใช้ป้ายเดียวกัน แนวที่เหลือใน Layer ใช้ป้ายที่พบมากที่สุดของ Layer นั้น",
+    `แนวที่ไม่มีป้ายเลย: ${A.wDef?`ใช้ขนาดที่ตั้งไว้ ${v(A.wDef)} (เฉพาะ Layer ไฟฟ้า ขึ้นเป็น “ควรตรวจ”)`:`${v("ไม่คิดสาย")} (ตั้งขนาดสายเริ่มต้นได้ในตั้งค่าถอดอัตโนมัติ)`}`,
+    "สูตร (ต่อแนว):",
+    `{{สายไฟ = [ ความยาวแนวท่อ + (จำนวนจุดอุปกรณ์ × ${+A.wDrop||0}) + ปลายสาย ${+A.wTerm||0} ] × จำนวนเส้นตามป้าย × (1 + ${+A.wWaste||0}%)}}`,
+    `{{สายดิน = [ ความยาวแนวท่อ + (จำนวนจุดอุปกรณ์ × ${+A.wDrop||0}) + ปลายสาย ${+A.wTerm||0} ] × 1 × (1 + ${+A.wWaste||0}%)}}`,
+    `แนวดิ่งต่อจุด ${n(A.wDrop,"ม./จุด")}: จุดอุปกรณ์ = สัญลักษณ์ที่นับได้ (ข้อ 3) ที่ปลายแนวสายอยู่ห่างไม่เกิน 0.6 ม. นับ 1 ครั้งต่อจุด กล่องต่อสายในฝ้าไม่คิดแนวดิ่ง`,
+    `ปลายสาย ${n(A.wTerm,"ม.")}: คิด 1 ครั้งต่อ Layer ต่อชนิดสาย (เผื่อต่อเข้าตู้/กล่อง)`,
+    `ค่าเผื่อสายไฟ ${n(A.wWaste,"%")} คูณท้ายสุด`,
+    "สาย UTP / CAT6 / โคแอกซ์: อ่านจากป้ายข้างแนว คิด 1 เส้นตามแนวท่อ บวกค่าเผื่อแบบเดียวกัน (“4 PAIRS” คือจำนวนคู่ในสาย 1 เส้น ไม่ใช่ 4 เส้น)"]],
+  ["6. ท่อน้ำ / ท่อดับเพลิง / ท่อลม",[
+    "ความยาวท่อจาก Block ท่อหรือเส้นบน Layer ท่อ ขนาดจากชื่อ Block หรือป้ายขนาดที่ใกล้ที่สุด",
+    `ท่อดร็อปหัวสปริงเกลอร์ = จำนวนหัว × ${n(A.dropLen,"ม./หัว")} ใช้ท่อ ø1"`,
+    `ค่าเผื่อตัดท่อในรายงาน ${n(A.pipeWaste,"%")} · จำนวนท่อน = ความยาวรวม ÷ 6 ม. ปัดขึ้น`,
+    "ท่อลมสี่เหลี่ยม: พื้นที่แผ่น (ตร.ฟ.) = เส้นรอบรูป (ม.) × 10.764 × ความยาวท่อ · ความหนาสังกะสีตามด้านยาวสุด (SMACNA): ≤300 มม. BWG26, ≤750 BWG24, ≤1350 BWG22, ≤2100 BWG20, ใหญ่กว่า BWG18 · ท่อลมจ่าย/กลับคิดฉนวนพื้นที่เท่ากัน ท่อลมระบายไม่คิดฉนวน · ค่าเผื่อตะเข็บ/เศษแผ่น 15% · ท่อ PID คิดเป็น ตร.ม. ผิวท่อ",
+    `ผนัง (เมื่อไม่ได้เลือกเฉพาะงานระบบ): พื้นที่ = ความยาวผนัง × สูง ${n(A.wallH||3,"ม.")}`]],
+  ["7. PDF",[
+    "อ่านเส้นเวกเตอร์ในหน้า PDF จัดกลุ่มตามสี ความหนา และเส้นประ แต่ละกลุ่มเป็นหนึ่งรายการความยาว",
+    "ต้องตั้งมาตราส่วน (วัดระยะที่รู้ค่าในแบบ 1 ครั้ง) ก่อนความยาวจะถูกต้อง",
+    "รายการจาก PDF ขึ้นเป็น “ควรตรวจ” เสมอ เพราะ PDF ไม่มีชื่อ Layer / Block ให้ยืนยัน",
+    "PDF ที่เป็นภาพสแกน ถอดอัตโนมัติไม่ได้ ใช้เครื่องมือวัดและนับด้วยมือ"]],
+  ["8. ราคาและ BOQ",[
+    "จับคู่แต่ละรายการกับบัญชีราคากลางตามชนิดและขนาด (รหัสในแท็บ ราคากลาง) ค่าวัสดุและค่าแรงต่อหน่วยตามบัญชี",
+    "ปริมาณใน BOQ = ปริมาณที่ถอด × ตัวคูณ × (1 + % เผื่อในแถว) แก้ได้ทุกแถว",
+    "แหล่งราคาวัสดุตามลำดับ: สนค. พาณิชย์จังหวัด → บัญชีราคา สพฐ. (งานไฟฟ้า) → ราคาร้านค้าไม่รวม VAT (ระบุไว้ในช่องแหล่งอ้างอิงทุกรายการ) · ค่าแรงตามบัญชีกรมบัญชีกลาง ว480 รายการที่ไม่มีในบัญชีคิด 30% ของค่าวัสดุ",
+    "ขนาด Pull box / Cable tray / Ladder / Wireway อ่านจากข้อความในแบบ ถ้าไม่มีขนาดตรงในบัญชีใช้ขนาดถัดขึ้นไปและขึ้นเป็น “ควรตรวจ”",
+    "ระดับความมั่นใจ: มั่นใจ = ตรงชนิดและขนาดตามแบบ · ควรตรวจ = ขนาดใกล้เคียง/อ่านจากป้ายหรือ PDF · ต้องตรวจ = ใช้ค่าสมมติ · ไม่มีราคา = ใส่ราคาเอง",
+    A.unmatched!==false?"รายการที่หาราคาไม่เจอ ใส่ลง BOQ ด้วย (ราคา 0 ให้ใส่เอง)":"รายการที่หาราคาไม่เจอ ไม่ใส่ลง BOQ"]],
+  ["9. สิ่งที่ผู้ถอดต้องตรวจเอง",[
+    "แนวดิ่งและไรเซอร์ระหว่างชั้น ความสูงฝ้า/ระดับติดตั้ง",
+    "อุปกรณ์ประกอบ: ข้อต่อ ข้องอ กล่องพัก อุปกรณ์จับยึด ป้าย เทป",
+    "รายการที่ขึ้น “ควรตรวจ” / “ต้องตรวจ” และรายการที่ไม่มีป้ายขนาดในแบบ",
+    "สิ่งที่ระบุในรายการประกอบแบบ (Specification) แต่ไม่ได้วาดในแปลน"]]]}
+const ruleTxt=s=>s.replace(/\[\[|\]\]|\{\{|\}\}/g,"");
+function renderRules(){$("#ruleBody").innerHTML=rulesData().map(([h,items])=>`<div class="rsec"><h2>${esc(h)}</h2><ol>${items.map(t=>/^\{\{/.test(t)?`<li style="list-style:none"><span class="fx">${esc(ruleTxt(t))}</span></li>`:`<li>${esc(t).replace(/\[\[(.*?)\]\]/g,'<b class="v">$1</b>')}</li>`).join("")}</ol></div>`).join("")}
+function rulesSheet(){const R=[["หลักการถอดปริมาณ — "+(P.name||"โครงการ")],["ค่าตั้งที่ใช้ ณ วันที่ส่งออก "+new Date().toLocaleDateString("th-TH")],[]];for(const [h,items] of rulesData()){R.push([h]);let i=0;for(const t of items)R.push(/^\{\{/.test(t)?["",ruleTxt(t)]:[++i+".",ruleTxt(t)]);R.push([])}return ["หลักการถอดปริมาณ",R,[5,120]]}
+function xlsxBlob(sheets){const wb=XLSX.utils.book_new();for(const [nm,rows,cols] of sheets){const ws=XLSX.utils.aoa_to_sheet(rows);if(cols)ws["!cols"]=cols.map(w=>({wch:w}));XLSX.utils.book_append_sheet(wb,ws,nm.slice(0,31))}
+  return new Blob([XLSX.write(wb,{bookType:"xlsx",type:"array"})],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"})}
+$("#btnQto").onclick=()=>{if(!window.XLSX){toast("ตัวสร้าง Excel ยังโหลดไม่เสร็จ");return}const r=qtoReport();saveFile(`ถอดปริมาณ_${safeName()}.xlsx`,xlsxBlob([["สรุป",r.S1,[46,16,14,16,14,11,40]],["รายการท่อ",r.S2,[7,28,16,12,12,11,11,16,30]],["สมมติฐาน",r.S3,[44,10,10,40]],rulesSheet()]))};
+$("#btnXlsx").onclick=()=>{if(!window.XLSX){toast("ตัวสร้าง Excel ยังโหลดไม่เสร็จ");return}saveFile(`BOQ-${safeName()}.xlsx`,xlsxBlob([["BOQ",boqMatrix(),[6,18,50,10,8,12,14,12,14,14,50,40]],rulesSheet()]))};
+$("#btnRuleX").onclick=()=>{if(!window.XLSX){toast("ตัวสร้าง Excel ยังโหลดไม่เสร็จ");return}saveFile(`หลักการถอดปริมาณ_${safeName()}.xlsx`,xlsxBlob([rulesSheet()]))};
+$("#btnRuleSet").onclick=()=>{showTab("draw");$("#autoSet").open=true;$("#autoSet").scrollIntoView({block:"start",behavior:"smooth"})};
+
+/* ======== BOOT ======== */
+window.__qto={get catalog(){return catalog},F,matchTakeoff:t=>matchTakeoff(t),cadAnalyze:(...a)=>cadAnalyze(...a),symPickBox:b=>symPickBox(b),get P(){return P}};
+P=load();const first=!P;if(!P)P=blank();
+P.auto=Object.assign({wallH:3,onOpen:true,unmatched:true,dropLen:0.4,mepOnly:true,hideUnk:false,sysFilter:""},P.auto||{});
+$("#mepOnly").checked=mepOn();
+$("#mepOnly").onchange=e=>{P.auto.mepOnly=e.target.checked;P.auto.sysFilter="";SYSM.clear();let n=0;if(e.target.checked){n=dropNonMepRows();if(P.autoSummary&&Object.keys(F).length)autoBuild(Object.keys(F))}
+  save();renderTO();renderBOQ();renderPB();draw();
+  toast(e.target.checked?`ถอดเฉพาะงานระบบ (ไฟฟ้า สุขาภิบาล ดับเพลิง ปรับอากาศ)${n?` · เอางานโครงสร้าง/สถาปัตย์ออกจาก BOQ ${n} รายการ`:""}`:"ถอดทุกหมวดงาน · กด “ถอดใหม่จากไฟล์ที่เปิดอยู่” เพื่อเพิ่มงานโครงสร้าง/สถาปัตย์")};
+$("#as-open").checked=P.auto.onOpen;$("#as-un").checked=P.auto.unmatched;$("#as-h").value=P.auto.wallH;
+$("#as-open").onchange=e=>{P.auto.onOpen=e.target.checked;save()};$("#as-un").onchange=e=>{P.auto.unmatched=e.target.checked;save()};
+$("#as-h").onchange=e=>{P.auto.wallH=parseFloat(e.target.value)||3;e.target.value=P.auto.wallH;save()};
+$("#as-w").value=P.auto.pipeWaste||0;$("#as-w").onchange=e=>{P.auto.pipeWaste=Math.max(0,parseFloat(e.target.value)||0);e.target.value=P.auto.pipeWaste;save()};
+$("#as-drop").value=P.auto.dropLen||0;$("#as-drop").onchange=e=>{P.auto.dropLen=Math.max(0,parseFloat(e.target.value)||0);e.target.value=P.auto.dropLen;save()};
+$("#btnReAuto").onclick=()=>autoRun(Object.keys(F));
+{const reW=()=>{save();if(Object.values(F).some(f=>f.cadDb))autoRun(Object.keys(F).filter(n=>F[n].cadDb))};
+ for(const [id,k] of [["#as-wdrop","wDrop"],["#as-wterm","wTerm"],["#as-wwaste","wWaste"]]){$(id).value=P.auto[k]||0;$(id).onchange=e=>{P.auto[k]=Math.max(0,parseFloat(e.target.value)||0);e.target.value=P.auto[k];reW()}}
+ $("#as-wdef").value=P.auto.wDef||"";$("#as-wdef").onchange=e=>{const v=e.target.value.trim();if(v&&!/(\d+)\s*[-x×]\s*(\d+(?:\.\d+)?)/.test(v)){toast("รูปแบบไม่ถูก ใส่เช่น 2-2.5/2.5G SQ.MM");return}P.auto.wDef=v;reW()}}
+$("#btnAuto").onclick=()=>$("#autoIn").click();
+$("#autoIn").onchange=e=>{const fs=[...e.target.files];e.target.value="";if(fs.length){showTab("draw");intake(fs,{auto:true})}};
+$("#projName").value=P.name;$("#factorF").value=(+P.factorF||1).toFixed(4);$("#vatChk").checked=!!P.vat;
+renderFiles();renderTO();renderBOQ();renderPB();
+if(first){P.name="ตัวอย่าง — อาคารสำนักงาน 1 ชั้น";$("#projName").value=P.name;loadSample()}
+else if(P.files[0])openFile(P.files[0].name,1);
+const h0=location.hash.slice(1);if(["boq","price","rule"].includes(h0))showTab(h0);
+
+if(OFFLINE){
+  const base=window.QTO_PRICES||{prices:[],meta:null};const loc=localPB.load();
+  const pick=loc&&loc.meta&&base.meta&&String(loc.meta.checkedAt||"")>=String(base.meta.checkedAt||"")?loc:null;
+  const by=Object.fromEntries(base.prices.map(p=>[p.code,p]));if(loc)for(const p of loc.prices)if(String(p.code).startsWith("USR-")||pick)by[p.code]=p;
+  catalog=Object.values(by).sort((a,b)=>String(a.code).localeCompare(String(b.code)));catMeta=(pick||base).meta;
+  canWrite=true;$("#pbAdd").hidden=false;$("#btnImportPB").hidden=false;$("#btnCsv").hidden=false;$("#btnSyncPB").hidden=false;fillSampleFromCatalog();runPendingAuto();renderPB();renderBOQ();
+  syncPrices(false);
+}
+/* online price list for installed copies: any public URL serving {meta,prices} JSON (e.g. GitHub Pages). No login needed. */
+function priceUrl(){try{const u=localStorage.getItem("qto.priceurl");if(u!==null)return u.trim()}catch(e){}return String(window.QTO_PRICE_URL||"").trim()}
+async function syncPrices(manual){const url=priceUrl();if(!OFFLINE)return;
+  if(!url){if(manual)toast("ยังไม่ได้ตั้งที่อยู่บัญชีราคาออนไลน์ กดปุ่ม “แหล่งราคาออนไลน์” เพื่อใส่ลิงก์");return}
+  try{const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),8000);const r=await fetch(url+(url.includes("?")?"&":"?")+"t="+Date.now(),{signal:ctl.signal,cache:"no-store"});clearTimeout(tm);
+    if(!r.ok)throw new Error("HTTP "+r.status);let j=await r.json();if(Array.isArray(j))j={meta:null,prices:j};if(!j||!Array.isArray(j.prices)||!j.prices.length)throw new Error("รูปแบบไฟล์ไม่ถูกต้อง");
+    const nw=String(j.meta?.checkedAt||""),old=String(catMeta?.checkedAt||"");
+    if(!manual&&nw&&old&&nw<old){return}
+    const by=Object.fromEntries(j.prices.filter(p=>p&&p.code&&!String(p.code).startsWith("USR-")).map(p=>[p.code,p]));for(const p of catalog)if(String(p.code).startsWith("USR-"))by[p.code]=p;
+    catalog=Object.values(by).sort((a,b)=>String(a.code).localeCompare(String(b.code)));catMeta=j.meta||catMeta;localPB.save();fillSampleFromCatalog();renderPB();renderBOQ();
+    toast(nw&&nw!==old?`อัปเดตราคาล่าสุดแล้ว (ราคา ณ ${nw})`:`ราคาเป็นชุดล่าสุดแล้ว (ณ ${nw||"-"})`,5000)}
+  catch(e){if(manual)toast("ดึงราคาออนไลน์ไม่ได้: "+(e.name==="AbortError"?"หมดเวลา (ไม่มีเน็ต?)":e.message)+" · ใช้ราคาในเครื่องต่อ",7000)}}
+$("#btnSyncPB").onclick=()=>{const cur=priceUrl();const u=prompt("ลิงก์บัญชีราคาออนไลน์ (ไฟล์ prices.json สาธารณะ เช่น https://ชื่อผู้ใช้.github.io/qto-boq/prices.json)\nเว้นว่าง = ไม่ดึงราคาออนไลน์",cur);if(u===null)return;try{localStorage.setItem("qto.priceurl",u.trim())}catch(e){}syncPrices(true)};
+(async()=>{
+  if(OFFLINE||!window.claude?.use)return;
+  try{downloads=await claude.use("downloads");if(downloads)$("#btnCsv").hidden=false}catch(e){}
+  try{const user=await claude.use("user");canWrite=user?.canEdit?.()??false}catch(e){}
+  try{db=await claude.use("db")}catch(e){db=null}
+  if(!db){renderPB();return}
+  $("#pbAdd").hidden=!canWrite;
+  db.collection("prices").onSnapshot(s=>{catalog=s.docs.map(d=>d.data()).filter(Boolean).sort((a,b)=>String(a.code).localeCompare(String(b.code)));fillSampleFromCatalog();runPendingAuto();renderPB();renderBOQ()},err=>{$("#pbMeta").textContent="อ่านบัญชีราคาไม่ได้: "+err.message});
+  db.doc("meta/catalog").onSnapshot(s=>{catMeta=s.exists?s.data():null;renderPB()},()=>{});
+})();
+})();
+</script>
+
+</body>
+</html>
