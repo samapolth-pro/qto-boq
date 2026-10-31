@@ -1026,11 +1026,11 @@ function parseSizes(raw){
   if((m=t.match(/(\d+(?:\.\d+)?)\s*(?:SQ\.?\s*MM|ตร\.?\s*มม|MM2|MM²)/))||(m=t.match(/(?:THW|IEC\s*01|VAF|NYY|VCT)[-\s]*(?:\d\s*[X×]\s*)?(\d+(?:\.\d+)?)/))||(m=t.match(/\b\d\s*[X×]\s*(\d+(?:\.\d+)?)\s*(?:SQ|ตร|MM)/)))o.sqmm=+m[1];
   if((m=t.match(/(?:^|[^\d.\/])(\d{1,2}[\s-]\d\/\d|\d\/\d|\d{1,2})\s*(?:"|”|''|IN\b|INCH|นิ้ว)/)))o.inch=normIn(m[1]);
   if(!o.inch&&(m=t.match(/ø\s*(\d{1,2}[\s-]\d\/\d|\d\/\d|\d{1,3})(?![\d.\/])/))){const v=normIn(m[1]);if(/\//.test(v)||+v<=12)o.inch=v;else o.mm=+v}
-  if(!o.mm&&(m=t.match(/(?:DN|ø)\s*(\d{2,3})\b/)||t.match(/(?:^|[^\d.])(\d{2,3})\s*(?:MM|มม)\b/)))o.mm=+m[1];
+  if(!o.mm&&(m=t.match(/(?:DN|ø)\s*(\d{2,3})\b/)||t.match(/(?:^|[^\d.])(\d{2,3})\s*(?:MM\b|มม)/)))o.mm=+m[1];
   if(!o.mm&&(m=t.match(/(?:EMT|IMC|RSC|CONDUIT|FLEX)[-\s]*(\d{2,3})(?!\d)/)))o.mm=+m[1];
   if((m=t.match(/(?:^|[^\d])(38|12|58|34|78|118|138|158|218)\s*[-x×\/&+]\s*(58|34|78|118|138|158|218|258|12)(?!\d)/)))o.pair=[m[1],m[2]];
   else if((m=t.match(/(\d\/\d|\d[\s-]\d\/\d)"?\s*[&+,x×\/]\s*(\d\/\d|\d[\s-]\d\/\d)"/)))o.pair=[IN_CODE[normIn(m[1])],IN_CODE[normIn(m[2])]].filter(Boolean);
-  if(!o.inch&&!o.mm&&(m=t.match(/(?:^|[^A-Z])(?:PVC|GSP|GI|PPR|HDPE|PB|PIPE|CW|HW|FP|FW|SP|DR|SAN|WW|SW|BS|SCH\s*40|STEEL|CU|CO|FCO|YS|FD)[-\s]*(\d{1,3})(?![\d.\/])/))&&CODE_IN[m[1]])o.inch=CODE_IN[m[1]];
+  if(!o.inch&&!o.mm&&(m=t.match(/(?:^|[^A-Z])(?:PVC|GSP|GI|PPR|HDPE|PB|PIPE|CW|HW|FP|FW|SP|DR|SAN|WW|SW|BS|SCH\s*40|STEEL|CU|CO|FCO|YS|FD|GV|CV|BV|BFV|SCV|FV|PRV|GLV)[-\s]*(\d{1,3})(?![\d.\/])/))&&CODE_IN[m[1]])o.inch=CODE_IN[m[1]];
   return o;
 }
 const has=c=>!!priceBy(c);
@@ -1042,6 +1042,10 @@ function sized(prefix,x,def){
   const alt=(def&&priceBy(prefix+def))||catalog.find(p=>p.code.startsWith(prefix));
   return alt?[{code:alt.code,conf:1,note:k?`ไม่มีขนาด ${CODE_IN[k]||k}" ในบัญชี ใช้ ${alt.name}`:"ไม่ทราบขนาดจากแบบ ตรวจขนาดท่อ"}]:[];
 }
+const PPR_OD={20:"1/2",25:"3/4",32:"1",40:"1 1/4",50:"1 1/2",63:"2",75:"2 1/2",90:"3",110:"4",160:"6"};
+function pprSized(prefix,x){const z=x.sz;if(!z.inch&&z.mm&&PPR_OD[z.mm])x={...x,sz:{...z,inch:PPR_OD[z.mm],mm:null}};return sized(prefix,x,"34")}
+function valve(prefix,gen,x){const k=sizeKey(x);if(k&&has(prefix+k))return [{code:prefix+k,conf:x.nearSize?2:3,note:x.nearSize?"ขนาดอ่านจากข้อความใกล้เส้น":""}];
+  const alt=has(prefix+"1")?prefix+"1":null;return alt?[{code:alt,conf:1,note:k?`ไม่มีขนาด ${CODE_IN[k]||k}" ในบัญชี ใช้ขนาด 1" แทน ตรวจขนาด`:"ไม่ทราบขนาดวาล์ว ใช้ขนาด 1\" ตรวจขนาดในแบบ"}]:one(gen,1)}
 function conduit(x){const S=x.S;const T=/IMC/.test(S)?"IMC":/RSC|RIGID/.test(S)?"RSC":/FLEX/.test(S)?"FLEX":/PVC/.test(S)?"PVCC":"EMT";
   const mm=x.sz.mm||(x.sz.inch?IN_MM[x.sz.inch]:null);const c=`ELE-${T}-${mm}`;
   if(mm&&has(c))return [{code:c,conf:x.nearSize?2:3}];const alt=priceBy(`ELE-${T}-20`)||catalog.find(p=>p.code.startsWith(`ELE-${T}-`));return alt?[{code:alt.code,conf:1,note:"ไม่ทราบขนาดท่อร้อยสาย"}]:[]}
@@ -1088,10 +1092,11 @@ const RULES=[
  R("c",/FHC|HOSE\s*CAB|ตู้ดับเพลิง/,()=>one("FP-FHC")),R("c",/FDC|SIAMESE|FIRE\s*DEP|หัวรับน้ำ/,()=>one("FP-FDC")),
  R("c",/EXTING|\bFE\b|ถังดับเพลิง/,()=>one("FP-EXT")),R("c",/ALARM\s*CHECK|\bACV\b|\bZCV\b|ZONE\s*CONTROL|FLOOR\s*CONTROL|\bFCV\b/,()=>one("FP-ACV")),
  R("c",/FLOW\s*SW|\bFS\b/,()=>one("FP-FS")),R("c",/JOCKEY/,()=>one("FP-JOCKEY")),R("c",/FIRE\s*PUMP/,()=>one("FP-PUMP")),
- R("c",/GATE|\bGV\b|OS&Y|ประตูน้ำ/,x=>one(x.fire?"FP-GV":"SAN-GV")),R("c",/CHECK\s*V|\bCV\b|เช็ควาล์ว/,x=>one(x.fire?"FP-CV":"SAN-CV")),
- R("c",/BUTTERFLY|\bBFV\b/,x=>one(x.hvac&&!x.fire?"HVAC-VALVE":"FP-BFV",x.fire||x.hvac?3:2)),R("c",/BALL\s*V|\bBV\b|บอลวาล์ว/,()=>one("SAN-BALL")),
- R("c",/STRAINER|\bYS\b|FLEX\s*CONN/,x=>sized("SAN-YS-",x,"1")),R("c",/\bPRV\b|PRESSURE\s*RED/,()=>one("SAN-PRV")),
- R("c",/FLOAT|ลูกลอย/,()=>one("SAN-FLOAT")),R("c",/METER|\bWM\b|มาตรวัดน้ำ/,()=>one("SAN-METER")),R("c",/STOP\s*V|\bSTV\b/,()=>one("SAN-STOPV")),
+ R("c",/FOOT\s*V|\bFV\b|ฟุตวาล์ว/,x=>valve("SAN-FV-","SAN-CV",x)),R("c",/GLOBE|โกลบ/,x=>valve("SAN-GLV-","HVAC-VALVE",x)),
+ R("c",/GATE|\bGV\b|OS&Y|ประตูน้ำ/,x=>x.fire?one("FP-GV"):valve("SAN-GV-","SAN-GV",x)),R("c",/SPRING\s*CHECK|SILENT\s*CHECK|\bSCV\b|เช็ควาล์วสปริง/,x=>x.fire?one("FP-CV"):valve("SAN-SCV-","SAN-CV",x)),R("c",/CHECK\s*V|\bCV\b|เช็ควาล์ว/,x=>x.fire?one("FP-CV"):valve("SAN-CV-","SAN-CV",x)),
+ R("c",/BUTTERFLY|\bBFV\b/,x=>x.fire?one("FP-BFV"):valve("SAN-BFV-","HVAC-VALVE",x)),R("c",/BALL\s*V|\bBV\b|บอลวาล์ว/,x=>valve(/PPR|PP-R/.test(x.S)?"SAN-PPRF-BV-":"SAN-BALL-","SAN-BALL",x)),
+ R("c",/STRAINER|\bYS\b|FLEX\s*CONN/,x=>sized("SAN-YS-",x,"1")),R("c",/\bPRV\b|PRESSURE\s*RED/,x=>valve("SAN-PRV-","SAN-PRV",x)),
+ R("c",/FLOAT|ลูกลอย/,x=>valve("SAN-FLOAT-","SAN-FLOAT",x)),R("c",/METER|\bWM\b|มาตรวัดน้ำ/,()=>one("SAN-METER")),R("c",/STOP\s*V|\bSTV\b/,()=>one("SAN-STOPV")),
  R("c",/BALANC|\bBLV\b/,()=>one("HVAC-VALVE")),
  R("c",/\bWC\b|TOILET|WATER\s*CLOSET|ส้วม|ชักโครก/,()=>one("SAN-WC")),R("c",/\bLAV|BASIN|อ่างล้างหน้า/,()=>one("SAN-LAV")),
  R("c",/\bUR\b|URINAL|โถปัสสาวะ/,()=>one("SAN-URI")),R("c",/\bFD\b|FLOOR\s*DRAIN|ท่อระบายพื้น/,()=>one("SAN-FD")),
@@ -1119,7 +1124,8 @@ const RULES=[
  R("l",/COPPER|\bCU\b|REFRIG|ทองแดง|\bRL\b|\bRS\b|LIQUID|SUCTION|น้ำยา/,x=>copper(x)),
  R("l",/CONDENS|\bCDP\b|\bCD\b|น้ำทิ้งแอร์/,()=>one("HVAC-DRAIN")),R("l",/FLEX\s*DUCT|FLEXIBLE\s*DUCT|ท่อลมอ่อน/,x=>flexduct(x)),
  R("l",/DUCT|ท่อลม|\bPID\b|\bSAD?\b|\bRAD?\b|\bEAD?\b|\bOAD?\b|\bFAD\b/,x=>duct(x)),
- R("l",/PPR|PP-R|\bPB\b|HDPE/,x=>sized(/DRAIN|WASTE|SOIL|\bSW\b|\bV\b|VENT|ระบาย/.test(x.S)?"SAN-PPD-":"SAN-PPR-",x,"1")),
+ R("l",/PPR|PP-R|\bPB\b|HDPE/,x=>/DRAIN|WASTE|SOIL|\bSW\b|\bV\b|VENT|ระบาย/.test(x.S)?sized("SAN-PPD-",x,"4"):pprSized(/\bHW\b|HOT|น้ำร้อน|PN\s*20|SDR\s*6/.test(x.S)?"SAN-PPRH-":"SAN-PPR-",x)),
+ R("l",/\bHW\b|HOT\s*WATER|น้ำร้อน/,x=>pprSized("SAN-PPRH-",x)),
  R("l",/GSP|GALV|\bGI\b|อาบสังกะสี/,x=>sized("SAN-GSP-",x,"1")),
  R("l",/DRAIN|WASTE|SOIL|VENT|\bSW\b|\bWW\b|\bDR\b|STORM|RAIN|ระบาย|ท่อน้ำทิ้ง/,x=>sized("SAN-DRN-",x,"4")),
  R("l",/PVC|\bCW\b|\bHW\b|WATER|PLUMB|ประปา|น้ำดี|PIPESEGMENT|(^|\s)P-/,x=>sized(/13\.?5/.test(x.S)?"SAN-PVC135-":"SAN-PVC85-",x,"12")),
@@ -1328,7 +1334,7 @@ async function pdfAuto(name,onProg){
       parts=[...by.values()].filter(g=>g.len>=20);for(const g of parts)v.segs[g.key]=g.segs}
     const SYSN={RL:"ท่อน้ำฝน (RL)",FD:"ท่อระบายน้ำพื้น (FD)",S:"ท่อโสโครก (S)",W:"ท่อน้ำทิ้ง (W)",V:"ท่ออากาศ (V)",KW:"ท่อน้ำทิ้งครัว (KW)",CW:"ท่อน้ำดี (CW)",HW:"ท่อน้ำร้อน (HW)"};
     for(const pp of parts){const mm=sc?pp.w*sc*1000:0;let sz=null;if(mm){let bd=1e9;for(const [n,o] of OD){const d=Math.abs(mm-o)/o;if(d<bd){bd=d;sz=n}}if(bd>0.18)sz=null}
-      const ck=sz?IN_CODE[sz]:null;let code=null;const pfs=pp.sys==="HW"?["SAN-PPR-"]:pp.sys==="CW"?["SAN-PVC135-","SAN-PVC85-"]:(["2","2 1/2","3","4","6"].includes(sz)?["SAN-DRN-","SAN-PVC85-"]:["SAN-PVC85-","SAN-PVC135-"]);if(ck)for(const pf of pfs)if(has(pf+ck)){code=pf+ck;break}
+      const ck=sz?IN_CODE[sz]:null;let code=null;const pfs=pp.sys==="HW"?["SAN-PPRH-","SAN-PPR-"]:pp.sys==="CW"?["SAN-PVC135-","SAN-PVC85-"]:(["2","2 1/2","3","4","6"].includes(sz)?["SAN-DRN-","SAN-PVC85-"]:["SAN-PVC85-","SAN-PVC135-"]);if(ck)for(const pf of pfs)if(has(pf+ck)){code=pf+ck;break}
       const sn=pp.sys?(SYSN[pp.sys]||`ท่อ ${pp.sys}`):null;
       out.push({id:`${name}|p${pn}|vec|${pp.key}`,file:name,kind:"pdfauto",mtype:"len",pipe2:true,label:`${sn||(labs.length?"ท่อ (ไม่พบป้ายระบบ) สี "+pp.col:"ท่อ (เส้นคู่) สี "+pp.col)}${sz?` ø${sz}"`:mm?` กว้าง ${mm.toFixed(0)} มม.`:""}`,layer:pp.col,hint:`ท่อ PIPE${sz?` ${sz}"`:""}`,sizeHint:sz?{inch:sz}:null,
         qty:sc?pp.len*sc:0,unit:"ม.",...(code?{code,conf:1}:{}),note:"ท่อที่วาดเป็นเส้นคู่ ขนาดจากระยะห่างผนังท่อในแบบ ระบบท่อ (S/W/RL/CW ฯลฯ) ดูจากสีและป้ายในแบบ ควรตรวจ",refs:{page:pn,type:"vec",gk:pp.key,pt:pp.len},
@@ -1669,7 +1675,7 @@ function cadAnalyze(name,db,unitOverride){
       for(const r of rs)if(!r.ps){if(maj){const [sy,sz]=maj[0].split("|");r.ps={sys:sy,sz,str:""};r.guess=true}else r.ps={sys:pLayers[L].sys||"?",sz:null,str:""}}}
     const G={};for(const r of pRuns){const k=r.ps.sys+"|"+(r.ps.sz||"?");const g=G[k]=G[k]||{sys:r.ps.sys,sz:r.ps.sz,len:0,hs:[],layers:new Set(),guess:false,labels:new Set(),byLabel:false};g.len+=r.len;g.hs.push(r.h);g.layers.add(r.L);if(r.guess||!r.ps.str)g.guess=true;if(r.ps.str)g.labels.add(r.ps.str);if(pLayers[r.L].byLabel)g.byLabel=true}
     for(const k in G){const g=G[k];if(g.len*unit<0.3)continue;const ck=g.sz?(IN_CODE[g.sz]||String(g.sz).replace(/\s+/g,"").replace("/","")):null;const big=g.sz&&!/\//.test(g.sz)&&+String(g.sz).split(" ")[0]>=2;
-      const pref=g.sys==="HW"?["SAN-PPR-"]:g.sys==="CW"?["SAN-PVC135-","SAN-PVC85-"]:["SAN-DRN-","SAN-PVC85-"];let code=null;if(ck)for(const pf of pref)if(has(pf+ck)){code=pf+ck;break}
+      const pref=g.sys==="HW"?["SAN-PPRH-","SAN-PPR-"]:g.sys==="CW"?["SAN-PVC135-","SAN-PVC85-"]:["SAN-DRN-","SAN-PVC85-"];let code=null;if(ck)for(const pf of pref)if(has(pf+ck)){code=pf+ck;break}
       const nm=PSYS[g.sys]||"ท่อประปา/ระบายน้ำ (ไม่ทราบระบบ)";
       out.push({id:`${name}|cadpipe|${k}`,file:name,kind:"auto",mtype:"len",label:`${nm}${g.sz?` ø${g.sz}"`:" (ไม่ทราบขนาด)"}`,layer:[...g.layers].join(", "),hint:`${g.sys} PIPE${g.sz?` ${g.sz}"`:""} ท่อ`,qty:g.len*unit,unit:"ม.",refs:{handles:g.hs},
         ...(code?{code,conf:g.guess||g.byLabel?2:3}:{}),sizeHint:g.sz?{inch:g.sz}:null,note:g.guess?"บางช่วงไม่มีป้ายขนาด ใช้ขนาดจากช่วงที่ต่อกันหรือที่พบมากใน Layer":"",
