@@ -226,7 +226,7 @@ table.pb td.r{text-align:right}
       <label><input type="checkbox" id="as-open"> ถอดอัตโนมัติทุกครั้งที่เปิดไฟล์</label>
       <label><input type="checkbox" id="as-un"> ใส่รายการที่หาราคาไม่เจอลง BOQ ด้วย</label>
       <label>ความสูงผนัง <input id="as-h" class="num" inputmode="decimal" size="5"> ม.</label>
-      <label>ค่าเผื่อตัดท่อในรายงาน <input id="as-w" class="num" inputmode="decimal" size="5"> %</label>
+      <label title="เว้นว่าง = แยกตามขนาด ≤2&quot; 10%, 2½&quot;–4&quot; 5%, ≥5&quot; 3%">ค่าเผื่อตัดท่อในรายงาน <input id="as-w" class="num" inputmode="decimal" size="7"> % <small class="muted">(ว่าง = ตามขนาด)</small></label>
       <label>ท่อดร็อปต่อหัวสปริงเกลอร์ <input id="as-drop" class="num" inputmode="decimal" size="5"> ม./หัว (0 = ไม่คิด)</label>
       <b class="asHd">สายไฟ (คิดจากป้ายขนาดสายในแบบ)</b>
       <label>สายแนวดิ่งต่อจุด <input id="as-wdrop" class="num" inputmode="decimal" size="5"> ม./จุด (ขึ้น-ลงจากฝ้าถึงโคม/เต้ารับ/สวิตช์ ต่อสายแต่ละเส้น)</label>
@@ -1153,7 +1153,11 @@ function matchTakeoff(t){
     return res}}
   return null;
 }
-const wasteOf=c=>/^HVAC-(DUCT-|BSD)/.test(c)?15:/^ELE-THW|^ELE-VAF/.test(c)?10:/^(SAN-(PVC|DRN|PPR|PPD|GSP)|FP-BS|HVAC-(CU|INS|DRAIN|FLEX|PID)|ELE-(EMT|IMC|RSC|PVCC|FLEX|TRAY|CT|CTP|LAD|WW|UTP))/.test(c)?5:0;
+const PIPE_SMALL=new Set(["12","34","1","114","112","2"]),PIPE_MID=new Set(["212","3","4"]);
+const pipeWasteBySize=k=>PIPE_SMALL.has(k)?10:PIPE_MID.has(k)?5:3;
+const pipeWasteIn=inch=>pipeWasteBySize(IN_CODE[inch]||"");
+const wasteOf=c=>{const m=/^(?:SAN-(?:PVC85|PVC135|DRN|PPRH|PPR|PPD|GSP)|FP-BS[GW])-(\w+)$/.exec(c);if(m)return pipeWasteBySize(m[1]);return wasteOf0(c)};
+const wasteOf0=c=>/^HVAC-(DUCT-|BSD)/.test(c)?15:/^ELE-THW|^ELE-VAF/.test(c)?10:/^(SAN-(PVC|DRN|PPR|PPD|GSP)|FP-BS|HVAC-(CU|INS|DRAIN|FLEX|PID)|ELE-(EMT|IMC|RSC|PVCC|FLEX|TRAY|CT|CTP|LAD|WW|UTP))/.test(c)?5:0;
 
 /* geometry helpers: nearest segment grid */
 function dseg2(x,y,s){const dx=s[2]-s[0],dy=s[3]-s[1],L=dx*dx+dy*dy;let t=L?((x-s[0])*dx+(y-s[1])*dy)/L:0;t=t<0?0:t>1?1:t;const px=s[0]+t*dx-x,py=s[1]+t*dy-y;return px*px+py*py}
@@ -1734,7 +1738,7 @@ function cadAnalyze(name,db,unitOverride){
 /* ======== QTO REPORT (pipe schedule / heads / equipment) ======== */
 const SIZE_ORDER=["1/2","3/4","1","1 1/4","1 1/2","2","2 1/2","3","4","5","6","8","10","12"];
 function qtoReport(){
-  const W=+(P.auto?.pipeWaste)||0,STD=6;
+  const Wflat=P.auto?.pipeWaste,bySz=Wflat===""||Wflat==null,W=+Wflat||0,STD=6;const wOf=k=>bySz?(k==="ไม่ทราบขนาด"?10:pipeWasteIn(k)):W;
   const tos=P.takeoffs.filter(t=>P.files.some(f=>f.name===t.file));
   const pipes=tos.filter(t=>t.mtype==="len"&&(t.sizeHint||/ท่อ/.test(t.label))&&t.layer!=="FP-DROP");
   const drops=tos.filter(t=>t.layer==="FP-DROP");
@@ -1745,9 +1749,9 @@ function qtoReport(){
   const heads=tos.filter(t=>/^FP-SPK/.test(t.code||""));
   const eq=tos.filter(t=>t.mtype==="count"&&t.code&&!/^FP-SPK/.test(t.code));
   const name=P.name||"โครงการ",src=[...new Set(tos.map(t=>t.file))].join(", ");
-  const S1=[[`สรุปปริมาณงานระบบท่อ — ${name}`],[`อ้างอิงแบบ ${src} | ความยาวเป็นเมตร | ถอดอัตโนมัติด้วยโปรแกรมถอดแบบ BOQ`],[],["1) สรุปท่อแยกตามขนาด"],["ขนาดท่อ (นิ้ว)","ท่อตามแปลน (ม.)","ท่อดร็อป (ม.)","ค่าเผื่อตัดท่อ (ม.)","รวมสุทธิ (ม.)","จำนวนท่อน"]];
+  const S1=[[`สรุปปริมาณงานระบบท่อ — ${name}`],[`อ้างอิงแบบ ${src} | ความยาวเป็นเมตร | ถอดอัตโนมัติด้วยโปรแกรมถอดแบบ BOQ`],[],["1) สรุปท่อแยกตามขนาด"],["ขนาดท่อ (นิ้ว)","ท่อตามแปลน (ม.)","ท่อดร็อป (ม.)","ค่าเผื่อตัดท่อ (ม.)","รวมสุทธิ (ม.)","จำนวนท่อน","เผื่อ (%)"]];
   let tp=0,td=0,tw=0,tn=0,tt=0;
-  for(const k of keys){const r=bySize[k];const w=(r.plan+r.drop)*W/100,tot=r.plan+r.drop+w,n=Math.ceil(tot/STD-1e-9);tp+=r.plan;td+=r.drop;tw+=w;tt+=tot;tn+=n;S1.push([k==="ไม่ทราบขนาด"?k:k+'"',+r.plan.toFixed(2),+r.drop.toFixed(2),+w.toFixed(2),+tot.toFixed(2),n])}
+  for(const k of keys){const r=bySize[k];const w=(r.plan+r.drop)*wOf(k)/100,tot=r.plan+r.drop+w,n=Math.ceil(tot/STD-1e-9);tp+=r.plan;td+=r.drop;tw+=w;tt+=tot;tn+=n;S1.push([k==="ไม่ทราบขนาด"?k:k+'"',+r.plan.toFixed(2),+r.drop.toFixed(2),+w.toFixed(2),+tot.toFixed(2),n,wOf(k)])}
   S1.push(["รวม",+tp.toFixed(2),+td.toFixed(2),+tw.toFixed(2),+tt.toFixed(2),tn],[],["2) สรุปหัวสปริงเกลอร์"],["ชนิดหัว","จำนวน (หัว)","ท่อดร็อปรวม (ม.)"]);
   let th=0;for(const t of heads){S1.push([t.label+(t.block?` (Block ${t.block})`:""),t.qty,+(t.qty*dropLen).toFixed(2)]);th+=t.qty}
   S1.push(["รวม",th,+(th*dropLen).toFixed(2)],[],["3) อุปกรณ์อื่นที่พบในแบบ"],["รายการ","จำนวน","หน่วย","ที่มา"]);
@@ -1799,7 +1803,9 @@ function rulesData(){const A=P.auto||{},v=x=>`[[${x}]]`,n=(x,u)=>v(`${+x||0} ${u
     "ความยาวท่อจาก Block ท่อหรือเส้นบน Layer ท่อ ขนาดจากชื่อ Block หรือป้ายขนาดที่ใกล้ที่สุด",
     "ท่อสุขาภิบาลแยกตามระบบ S (โสโครก) W (น้ำทิ้ง) V (อากาศ) KW (น้ำทิ้งครัว) RL (น้ำฝน) CW (น้ำดี) HW (น้ำร้อน) จากชื่อ Layer หรือป้ายท่อ เช่น 4\"S, ø3\" W, CW 1\", 3/4\"HW · ป้ายใช้กับเส้นท่อที่ใกล้ที่สุด (ไม่เกิน 3 ม.) แล้วส่งต่อไปตามเส้นที่ต่อกัน · ราคา: S/W/V/KW/RL = ท่อ PVC ระบายน้ำชั้น 8.5, CW = PVC ชั้น 13.5 (โตกว่า 1 1/4\" ใช้ชั้น 8.5), HW = PP-R · ไม่รวมท่อแนวดิ่งและข้อต่อ",
     `ท่อดร็อปหัวสปริงเกลอร์ = จำนวนหัว × ${n(A.dropLen,"ม./หัว")} ใช้ท่อ ø1"`,
-    `ค่าเผื่อตัดท่อในรายงาน ${n(A.pipeWaste,"%")} · จำนวนท่อน = ความยาวรวม ÷ 6 ม. ปัดขึ้น`,
+    (A.pipeWaste===""||A.pipeWaste==null?"ค่าเผื่อตัดท่อ/เศษแยกตามขนาด: ท่อ ≤2\" 10% · 2½\"–4\" 5% · ≥5\" 3% (ใช้ทั้งในรายงานและแถว BOQ)":`ค่าเผื่อตัดท่อในรายงาน ${n(A.pipeWaste,"%")} ทุกขนาด (แถว BOQ ยังใช้ค่าแยกตามขนาด)`)+" · จำนวนท่อน = ความยาวรวม ÷ 6 ม. ปัดขึ้น",
+    "สเกล PDF: ใช้ระยะ Grid Line ของแบบสถาปัตย์ (เช่น 8.00 ม.) เป็นหลักในการตั้งสเกล แล้วตรวจกับเส้นบอกระยะอื่นในแบบ ถ้าคลาดเกิน ±5% ให้ตั้งสเกลใหม่",
+    "ความยาวท่อวัดตามแนวราบในแปลน ไม่รวมท่อแนวดิ่ง (Riser/ท่อขึ้น-ลง) ที่แสดงเฉพาะในรูปตัด และไม่นับชิ้นข้อต่อสั้น (ต่ำกว่าประมาณ 0.15 ม.) ซ้ำกับแนวท่อ",
     "ท่อลมสี่เหลี่ยม: พื้นที่แผ่น (ตร.ฟ.) = เส้นรอบรูป (ม.) × 10.764 × ความยาวท่อ · ความหนาสังกะสีตามด้านยาวสุด (SMACNA): ≤300 มม. BWG26, ≤750 BWG24, ≤1350 BWG22, ≤2100 BWG20, ใหญ่กว่า BWG18 · ท่อลมจ่าย/กลับคิดฉนวนพื้นที่เท่ากัน ท่อลมระบายไม่คิดฉนวน · ค่าเผื่อตะเข็บ/เศษแผ่น 15% · ท่อ PID คิดเป็น ตร.ม. ผิวท่อ",
     `ผนัง (เมื่อไม่ได้เลือกเฉพาะงานระบบ): พื้นที่ = ความยาวผนัง × สูง ${n(A.wallH||3,"ม.")}`]],
   ["7. PDF",[
@@ -1843,7 +1849,7 @@ $("#mepOnly").onchange=e=>{P.auto.mepOnly=e.target.checked;P.auto.sysFilter="";S
 $("#as-open").checked=P.auto.onOpen;$("#as-un").checked=P.auto.unmatched;$("#as-h").value=P.auto.wallH;
 $("#as-open").onchange=e=>{P.auto.onOpen=e.target.checked;save()};$("#as-un").onchange=e=>{P.auto.unmatched=e.target.checked;save()};
 $("#as-h").onchange=e=>{P.auto.wallH=parseFloat(e.target.value)||3;e.target.value=P.auto.wallH;save()};
-$("#as-w").value=P.auto.pipeWaste||0;$("#as-w").onchange=e=>{P.auto.pipeWaste=Math.max(0,parseFloat(e.target.value)||0);e.target.value=P.auto.pipeWaste;save()};
+$("#as-w").placeholder="ตามขนาด";$("#as-w").value=P.auto.pipeWaste==null?"":P.auto.pipeWaste;$("#as-w").onchange=e=>{const v=e.target.value.trim();P.auto.pipeWaste=v===""?"":Math.max(0,parseFloat(v)||0);e.target.value=P.auto.pipeWaste;save()};
 $("#as-drop").value=P.auto.dropLen||0;$("#as-drop").onchange=e=>{P.auto.dropLen=Math.max(0,parseFloat(e.target.value)||0);e.target.value=P.auto.dropLen;save()};
 $("#btnReAuto").onclick=()=>autoRun(Object.keys(F));
 {const reW=()=>{save();if(Object.values(F).some(f=>f.cadDb))autoRun(Object.keys(F).filter(n=>F[n].cadDb))};
