@@ -1473,6 +1473,95 @@ const ANON=/^\*[UDTXA]/i;
 const BAD_PIPE_LAYER=/\$0\$|HATCH|STUD|FRAME|WIREWAY|TRAY|LADDER|^0$|^S-|SUPPORT|DIM|TEXT|ANNO|GRID|AXIS|FURN|DEFPOINTS|LEADER/i;
 const ARCH_LAYER=/^(A|S|C|L|I)[-_ ]|ARCH|STRUC|DOOR|WINDOW|GLAZ|CURT|FURN|LANDSC/i;
 const FITTING=/\bTEE\b|ELBOW|REDUC|\d+\s*[xX+]\s*\d+|FLANG|UNION|COUPL|SOCKET|FLOW|ARROW|NIPPLE|CAP\b|BSP_|PR_|ST_JIS/i;
+/* Pipe network from CAD centerlines (shop-drawing style: CENTER line + two outlines per pipe).
+   In:  segs  [{a:[x,y],b:[x,y],L:layer,lt:linetype,t:top-level block name}]  (already limited to the plan viewports)
+        leaders [[ [x,y],... ]]  polylines that may be label leaders
+        texts  [{x,y,str}]  (cleaned: ø instead of %%C)
+        u = drawing units per mm (1 for mm drawings)
+   Out: {pieces:[{a,b,l,L,od,nom,sys,src,szsrc,ch}], labels:[...]} — lengths in drawing units */
+function pipeNet(segs,leaders,texts,u){
+  const OD={"1/2":[20,21.3,22],"3/4":[25,26,26.9],"1":[32,33.7,34],"1 1/4":[40,42,42.4],"1 1/2":[48,48.3,50],"2":[60,60.3,63],"2 1/2":[75,76,76.1],"3":[88.9,89,90],"4":[110,114,114.3],"5":[139.7,140],"6":[160,165,165.1],"8":[216,219.1]};
+  const ORD=["1/2","3/4","1","1 1/4","1 1/2","2","2 1/2","3","4","5","6","8"];
+  const nominal=od=>{if(!od)return null;let be=1e9,bk=null;for(const k in OD)for(const x of OD[k]){const e=Math.abs(od-x)/x;if(e<be){be=e;bk=k}}return be<=0.08?bk:null};
+  const M=v=>v*u;  // mm → drawing units
+  const BLK=/^(PLAN|P-PLAN|A[-_].*|.*DIM.*|-?Section|CENTER LINE|Defpoints|S-(?!D$).*|wip|SN-LEADER|PIPE AC-AIR DUCT|HEAT PUMP.*|AC-SUPPORT|SAN-PUMP|.*GRID.*|L3|REV|TEXT.*|1AC-TEXT|BLOCK.*|Block_Skin|.*HATCH.*|.*ANNO.*|.*TITLE.*|.*BORDER.*|.*FURN.*|E-.*|-?EE.*|.*WIREWAY.*|.*LADDER.*|.*TRAY.*)$/i;
+  const EQUIP=/tank|tnak|pump|heat|uwhp|motor|boiler|toilet|sink|basin|chiller|ahu|fcu/i;
+  const S=[];
+  for(const s of segs){if(BLK.test(s.L)||EQUIP.test(s.t||""))continue;const l=Math.hypot(s.b[0]-s.a[0],s.b[1]-s.a[1]);if(l<M(5))continue;S.push({a:s.a,b:s.b,l,L:s.L,c:/CENTER|CENTRE/i.test(s.lt||"")})}
+  // spatial index
+  const cell=M(500);const G=new Map();const key=(x,y)=>Math.floor(x/cell)+","+Math.floor(y/cell);
+  S.forEach((s,i)=>{const n=Math.floor(s.l/cell)+1;for(let k=0;k<=n;k++){const f=k/n;const kk=key(s.a[0]+(s.b[0]-s.a[0])*f,s.a[1]+(s.b[1]-s.a[1])*f);let v=G.get(kk);if(!v)G.set(kk,v=[]);if(v[v.length-1]!==i)v.push(i)}});
+  const near=s=>{const out=new Set();const n=Math.floor(s.l/cell)+1;for(let k=0;k<=n;k++){const f=k/n;const x=s.a[0]+(s.b[0]-s.a[0])*f,y=s.a[1]+(s.b[1]-s.a[1])*f;const gx=Math.floor(x/cell),gy=Math.floor(y/cell);
+    for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++){const v=G.get((gx+dx)+","+(gy+dy));if(v)for(const j of v)out.add(j)}}return out};
+  // centerlines with outlines at equal offset on both sides → OD
+  const P=[];
+  S.forEach((s,i)=>{if(!s.c)return;const ux=(s.b[0]-s.a[0])/s.l,uy=(s.b[1]-s.a[1])/s.l,nx=-uy,ny=ux;const side={1:[],"-1":[]};
+    for(const j of near(s)){if(j===i)continue;const t=S[j];if(t.L!==s.L||t.c)continue;const vx=(t.b[0]-t.a[0])/t.l,vy=(t.b[1]-t.a[1])/t.l;if(Math.abs(ux*vy-uy*vx)>0.02)continue;
+      const o1=(t.a[0]-s.a[0])*nx+(t.a[1]-s.a[1])*ny,o2=(t.b[0]-s.a[0])*nx+(t.b[1]-s.a[1])*ny;if(Math.abs(o1-o2)>M(1.5))continue;const o=(o1+o2)/2;if(Math.abs(o)<M(3)||Math.abs(o)>M(170))continue;
+      const t0=(t.a[0]-s.a[0])*ux+(t.a[1]-s.a[1])*uy,t1=(t.b[0]-s.a[0])*ux+(t.b[1]-s.a[1])*uy;const ov=Math.min(s.l,Math.max(t0,t1))-Math.max(0,Math.min(t0,t1));if(ov<Math.min(0.3*s.l,M(100)))continue;side[o>0?1:"-1"].push([Math.abs(o),ov])}
+    let best=null;for(const [r1,v1] of side[1])for(const [r2,v2] of side["-1"])if(Math.abs(r1-r2)<=M(1.5)){const r=(r1+r2)/2,sc=Math.min(v1,v2);if(!best||sc>best[1]+M(1)||(Math.abs(sc-best[1])<=M(1)&&r<best[0]))best=[r,sc]}
+    const od=best?2*best[0]/u:null;P.push({a:s.a,b:s.b,l:s.l,L:s.L,od,nom:s.l>=M(300)?nominal(od):null,sys:null,src:""})});
+  // remove duplicates / overlaps of collinear centerlines on the same layer
+  const grp=new Map();P.forEach((p,i)=>{let ux=(p.b[0]-p.a[0])/p.l,uy=(p.b[1]-p.a[1])/p.l;if(ux<-1e-9||(Math.abs(ux)<1e-9&&uy<0)){ux=-ux;uy=-uy}const off=-uy*p.a[0]+ux*p.a[1],t0=ux*p.a[0]+uy*p.a[1],t1=ux*p.b[0]+uy*p.b[1];
+    const k=p.L+"|"+Math.round(Math.atan2(uy,ux)*180/Math.PI*2)+"|"+Math.round(off/M(3));let v=grp.get(k);if(!v)grp.set(k,v=[]);v.push([Math.min(t0,t1),Math.max(t0,t1),i,ux,uy,off])});
+  const NP=[];for(const iv of grp.values()){iv.sort((x,y)=>x[0]-y[0]||(y[1]-y[0])-(x[1]-x[0]));let end=-Infinity;
+    for(const [t0,t1,i,ux,uy,off] of iv){if(t1<=end+M(1))continue;const s0=Math.max(t0,end);const p={...P[i]};if(s0>t0){p.a=[ux*s0-uy*off,uy*s0+ux*off];p.b=[ux*t1-uy*off,uy*t1+ux*off];p.l=t1-s0}NP.push(p);end=Math.max(end,t1)}}
+  const Q=NP;
+  const dseg=(p,a,b)=>{const dx=b[0]-a[0],dy=b[1]-a[1],l2=dx*dx+dy*dy||1e-12;const t=Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/l2));return Math.hypot(p[0]-a[0]-t*dx,p[1]-a[1]-t*dy)};
+  // connectivity: endpoints within 60 mm, or an endpoint on another centerline (branch)
+  const adj=Q.map(()=>new Set());const ec=M(60),EG=new Map();const ek=(x,y)=>Math.floor(x/ec)+","+Math.floor(y/ec);
+  Q.forEach((p,i)=>{for(const q of [p.a,p.b]){const k=ek(q[0],q[1]);let v=EG.get(k);if(!v)EG.set(k,v=[]);v.push([i,q])}});
+  Q.forEach((p,i)=>{for(const q of [p.a,p.b]){const gx=Math.floor(q[0]/ec),gy=Math.floor(q[1]/ec);for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(const [j,r] of EG.get((gx+dx)+","+(gy+dy))||[])if(j!==i&&Math.hypot(q[0]-r[0],q[1]-r[1])<=ec){adj[i].add(j);adj[j].add(i)}}});
+  const cs=M(500),SG=new Map();Q.forEach((p,i)=>{const n=Math.floor(p.l/cs)+1;for(let k=0;k<=n;k++){const kk=Math.floor((p.a[0]+(p.b[0]-p.a[0])*k/n)/cs)+","+Math.floor((p.a[1]+(p.b[1]-p.a[1])*k/n)/cs);let v=SG.get(kk);if(!v)SG.set(kk,v=[]);v.push(i)}});
+  Q.forEach((p,i)=>{for(const q of [p.a,p.b]){const gx=Math.floor(q[0]/cs),gy=Math.floor(q[1]/cs);const c=new Set();for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(const j of SG.get((gx+dx)+","+(gy+dy))||[])c.add(j);
+    for(const j of c)if(j!==i&&Q[j].L===p.L&&dseg(q,Q[j].a,Q[j].b)<=M(40)){adj[i].add(j);adj[j].add(i)}}});
+  // isolated stubs (hangers, valve stems): connected pieces on one layer shorter than 0.4 m
+  const seen=new Array(Q.length).fill(false);
+  for(let i=0;i<Q.length;i++){if(seen[i])continue;const c=[i];seen[i]=true;for(let k=0;k<c.length;k++)for(const j of adj[c[k]])if(!seen[j]&&Q[j].L===Q[i].L){seen[j]=true;c.push(j)}
+    if(c.reduce((t,j)=>t+Q[j].l,0)<M(400))for(const j of c){Q[j].nom=null;Q[j].stub=true}}
+  // short pieces / fittings take the size of the pipe they connect to
+  let dq=[];Q.forEach((p,i)=>{if(p.nom)dq.push(i)});
+  while(dq.length){const nx=[];for(const i of dq)for(const j of adj[i])if(!Q[j].nom&&!Q[j].stub&&Q[j].l<M(600)){Q[j].nom=Q[i].nom;Q[j].inh=true;nx.push(j)}dq=nx}
+  const sized=Q.map((p,i)=>p.nom?i:-1).filter(i=>i>=0);
+  for(const p of Q){if(p.nom||p.stub)continue;const m=[(p.a[0]+p.b[0])/2,(p.a[1]+p.b[1])/2];let bd=M(1500),bk=-1;for(const k of sized){if(Q[k].L!==p.L)continue;const d=dseg(m,Q[k].a,Q[k].b);if(d<bd){bd=d;bk=k}}if(bk>=0){p.nom=Q[bk].nom;p.inh=true}}
+  // runs = connected pieces on one layer with one size
+  const comp=new Array(Q.length).fill(-1);let nc=0;
+  for(let i=0;i<Q.length;i++){if(comp[i]>=0||!Q[i].nom)continue;comp[i]=nc;const st=[i];while(st.length){const k=st.pop();for(const j of adj[k])if(comp[j]<0&&Q[j].L===Q[i].L&&Q[j].nom===Q[i].nom){comp[j]=nc;st.push(j)}}nc++}
+  const chs=new Map();comp.forEach((c,i)=>{if(c<0)return;let v=chs.get(c);if(!v)chs.set(c,v=[]);v.push(i)});
+  // labels: ø<size>"-<system ...>
+  const sysOf=r=>{r=String(r).toUpperCase().trim();if(/^(BV|GV|GATE|CHECK|Y[- ]?STR|NON|BALANC|FLOAT|MODUL|UNI|SOLEN|BUTTER|STRAIN|300P)/.test(r))return null;
+    if(/HWR/.test(r))return"HWR";if(/CWT/.test(r))return"CWT";if(/HEAT PUMP|HB-P|\bHW\b|HOT/.test(r))return"HW";if(/OVER\s*FLOW|DRAIN|VENT FOR TANK|^D\b/.test(r))return"D";if(/\bCW\b|SUCTION|MAKE UP/.test(r))return"CW";
+    const m=/^_?\(?(S|W|V|KW|RL|RD|CD|KV)\b/.exec(r);return m?m[1]:null};
+  const LBL=/ø\s*(\d+\s*-\s*\d\/\d|\d+\s+\d\/\d|\d\/\d|\d+)\s*"?\s*[-_]?\s*(.*)/i;
+  const labs=[];for(const t of texts){const m=LBL.exec(t.str||"");if(!m)continue;const sy=sysOf(m[2]);if(!sy)continue;labs.push({x:t.x,y:t.y,sz:m[1].replace(/\s*-\s*|\s+/g," ").trim(),sys:sy,str:t.str})}
+  const DR=new Set(["S","W","V","KW","RL","RD","CD","D","KV"]),WA=new Set(["CW","HW","HWR","CWT"]);
+  const fix=L=>{const U=L.toUpperCase();if(/^S-D$/.test(U))return new Set(["S"]);if(/^VS-D$/.test(U))return new Set(["V","KV"]);if(/^KW[_-]D$/.test(U))return new Set(["KW"]);
+    if(/^(W|RL|RW)[-_]D$/.test(U))return DR;if(/^(CW|HWS|HW)[-_]D$|PIPE-FP|SUPPORT/.test(U))return WA;return null};
+  const pref=L=>{const U=L.toUpperCase();return /^CW[-_]D$/.test(U)?"CW":/PIPE-FP|^HWS[-_]D$/.test(U)?"HW":/^W[-_]D$/.test(U)?"W":null};
+  const SYSDEF=L=>{const U=L.toUpperCase();return({"S-D":"S","W-D":"W","VS-D":"V","KW_D":"KW","KW-D":"KW","CW-D":"CW","HWS-D":"HW","RL-D":"RL"})[U]||null};
+  const trip=[];
+  labs.forEach((lb,li)=>{const tp=[lb.x,lb.y];let best=null;
+    for(const e of leaders){if(e.length<2)continue;for(const [end,oth] of [[e[0],e[e.length-1]],[e[e.length-1],e[0]]]){const d=Math.min(Math.hypot(end[0]-tp[0],end[1]-tp[1]),dseg(end,tp,[tp[0]+M(1500),tp[1]]));if(d<M(450)&&(!best||d<best[0]))best=[d,oth]}}
+    const an=best?best[1]:tp,R0=best?M(1200):M(2500);
+    for(const [c,idx] of chs){const p0=Q[idx[0]];const fx=fix(p0.L);if(fx&&!fx.has(lb.sys))continue;let dist=Infinity;for(const i of idx)dist=Math.min(dist,dseg(an,Q[i].a,Q[i].b));if(dist>R0)continue;
+      const pf=pref(p0.L);trip.push([dist+(p0.nom===lb.sz?0:M(3000))+(pf&&pf!==lb.sys?M(300):0),li,c,lb.sys])}});
+  trip.sort((a,b)=>a[0]-b[0]);const used=new Set(),csys=new Map(),csz=new Map();
+  for(const [sc,li,c,sy] of trip){if(used.has(li))continue;if(csys.has(c)&&csys.get(c)!==sy)continue;csys.set(c,sy);used.add(li);if(!csz.has(c))csz.set(c,labs[li].sz)}
+  for(const [c,sy] of csys){const idx=chs.get(c);for(const i of idx){Q[i].sys=sy;Q[i].src="label"}
+    const ls=csz.get(c),mn=Q[idx[0]].nom;if(ORD.includes(ls)&&ORD.includes(mn)&&ls!==mn&&Math.abs(ORD.indexOf(ls)-ORD.indexOf(mn))<=2)for(const i of idx){Q[i].nom=ls;Q[i].szsrc="label"}}
+  dq=[];Q.forEach((p,i)=>{if(p.sys)dq.push(i)});
+  while(dq.length){const nx=[];for(const i of dq)for(const j of adj[i])if(!Q[j].sys&&Q[j].L===Q[i].L){Q[j].sys=Q[i].sys;Q[j].src="connected";nx.push(j)}dq=nx}
+  const ls=new Map(),lsL=new Map();for(const p of Q){if(!p.sys||!p.nom)continue;const k=p.L+"|"+p.nom;if(!ls.has(k))ls.set(k,{});ls.get(k)[p.sys]=(ls.get(k)[p.sys]||0)+p.l;if(!lsL.has(p.L))lsL.set(p.L,{});lsL.get(p.L)[p.sys]=(lsL.get(p.L)[p.sys]||0)+p.l}
+  for(const p of Q){if(p.sys||!p.nom)continue;const c=ls.get(p.L+"|"+p.nom);if(c&&Object.keys(c).length===1){p.sys=Object.keys(c)[0];p.src="same";continue}
+    const d=SYSDEF(p.L);if(d){p.sys=d;p.src="layer";continue}const cl=lsL.get(p.L);if(cl){const e=Object.entries(cl).sort((a,b)=>b[1]-a[1]);const tot=e.reduce((t,x)=>t+x[1],0);if(e[0][1]>=0.7*tot){p.sys=e[0][0];p.src="majority";continue}}p.src="none"}
+  comp.forEach((c,i)=>Q[i].ch=c);
+  // sanity: sizes that no label in this drawing uses for the system and that are bigger than every labelled size → fittings / valve bodies
+  const labSz={};for(const lb of labs){(labSz[lb.sys]=labSz[lb.sys]||new Set()).add(lb.sz)}
+  for(const p of Q){if(!p.nom||!p.sys)continue;const ls2=labSz[p.sys];if(DR.has(p.sys)&&ORD.indexOf(p.nom)<ORD.indexOf("1 1/4")){p.odd="small";continue}
+    if(ls2&&ls2.size&&!ls2.has(p.nom)&&ORD.indexOf(p.nom)>Math.max(...[...ls2].map(z=>ORD.indexOf(z))))p.odd="big"}
+  return {pieces:Q,labels:labs,ORD};
+}
+
 function cadAnalyze(name,db,unitOverride){
   const BR=(db.tables?.BLOCK_RECORD?.entries)||[];const B={};for(const b of BR)B[b.name]=b;
   const LAYC={};for(const l of (db.tables?.LAYER?.entries)||[])LAYC[l.name]=l;
@@ -1507,7 +1596,7 @@ function cadAnalyze(name,db,unitOverride){
     const F=(e.fitPoints||[]).filter(q=>q&&isFinite(q.x));return F.length>1?F:C};
   const geom=(e,m)=>{const t=e.type,out=[];
     if(t==="LINE"&&e.startPoint&&e.endPoint)out.push([ap(m,e.startPoint.x,e.startPoint.y),ap(m,e.endPoint.x,e.endPoint.y)]);
-    else if((t==="LWPOLYLINE"||t==="POLYLINE2D"||t==="POLYLINE")&&e.vertices){const v=e.vertices.map(q=>({x:(q.point||q).x,y:(q.point||q).y,b:+(q.bulge||0)}));if(((e.flag||e.flags||0)&1)&&v.length>2)v.push({...v[0],b:0});
+    else if((t==="LWPOLYLINE"||t==="POLYLINE2D"||t==="POLYLINE")&&e.vertices){const v=e.vertices.map(q=>({x:(q.point||q).x,y:(q.point||q).y,b:+(q.bulge||0)}));if(((e.flag||e.flags||0)&(t==="LWPOLYLINE"?512:1))&&v.length>2)v.push({...v[0],b:0});
       // arc segments (bulge = tan(angle/4)) are common for curved circuit/home-run lines
       let pr=ap(m,v[0].x,v[0].y);for(let i=1;i<v.length;i++){const A=v[i-1],Bv=v[i],bu=A.b;
         if(Math.abs(bu)>1e-6){const dx=Bv.x-A.x,dy=Bv.y-A.y,c=Math.hypot(dx,dy);if(c>0){const th=4*Math.atan(bu),r=c/(2*Math.sin(th/2)),mx=(A.x+Bv.x)/2,my=(A.y+Bv.y)/2,h=r*Math.cos(th/2),cx=mx-h*dy/c,cy=my+h*dx/c;const a0=Math.atan2(A.y-cy,A.x-cx);const n=Math.max(4,Math.ceil(Math.abs(th)/0.3));for(let k=1;k<=n;k++){const a=a0+th*k/n;const q=ap(m,cx+Math.abs(r)*Math.cos(a),cy+Math.abs(r)*Math.sin(a));out.push([pr,q]);pr=q}continue}}
@@ -1517,7 +1606,9 @@ function cadAnalyze(name,db,unitOverride){
       for(let i=0;i<=n;i++){const a=a0+(a1-a0)*i/n;const x=c.x+M.x*Math.cos(a)-M.y*R*Math.sin(a),y=c.y+M.y*Math.cos(a)+M.x*R*Math.sin(a);const q=ap(m,x,y);if(pr)out.push([pr,q]);pr=q}}
     else if((t==="ARC"||t==="CIRCLE")&&e.center){let a0=t==="CIRCLE"?0:e.startAngle||0,a1=t==="CIRCLE"?2*Math.PI:e.endAngle||0;if(a1<a0)a1+=2*Math.PI;const n=Math.max(6,Math.ceil((a1-a0)/0.3));let pr=null;for(let i=0;i<=n;i++){const a=a0+(a1-a0)*i/n;const p=ap(m,e.center.x+e.radius*Math.cos(a),e.center.y+e.radius*Math.sin(a));if(pr)out.push([pr,p]);pr=p}}
     return out};
-  const disp=[];let nseg=0;const MAXSEG=350000;const inserts=[];const texts=[];const layLen={};let lh=0;
+  const inLegend0=()=>false;
+  const disp=[];let nseg=0;const MAXSEG=350000;const inserts=[];const texts=[];const layLen={};let lh=0;const netSegs=[],netLead=[];
+  const LTL=L=>(LAYC[L]&&(LAYC[L].lineType||LAYC[L].lineTypeName))||"";const LEADL=/^(wip|SN-LEADER|0|LEADER|1S-ARR)$/i;
   const lay=(e,inh)=>(e.layer&&e.layer!=="0")||!inh?e.layer||"0":inh;
   const walk=(ents,m,inh,depth,chain,parentIdx)=>{
     for(const e of ents){const L=lay(e,inh);
@@ -1525,7 +1616,11 @@ function cadAnalyze(name,db,unitOverride){
         const idx=inserts.length;inserts.push({name:e.name,layer:L,x,y,m:mm,depth,chain,parent:parentIdx,attr:(e.attribs||[]).map(a=>cleanTxt(a.text)).join(" ")});
         if(b&&depth<8)walk(b.entities||[],mm,L,depth+1,chain.concat(e.name),idx);continue}
       if(e.type==="TEXT"||e.type==="MTEXT"||e.type==="ATTRIB"){const p=e.startPoint||e.insertionPoint;if(p){const [x,y]=ap(m,p.x,p.y);texts.push({x,y,str:cleanTxt(e.text),layer:L,h:(e.textHeight||e.height||2.5)*scl(m)})}continue}
+      if(e.type==="LEADER"&&e.vertices&&e.vertices.length>1){netLead.push(e.vertices.map(q=>ap(m,(q.point||q).x,(q.point||q).y)));continue}
+      const lineish=e.type==="LINE"||e.type==="LWPOLYLINE"||e.type==="POLYLINE2D"||e.type==="POLYLINE";
+      if(lineish&&nseg>=MAXSEG&&netSegs.length<1500000){const g=geom(e,m);let lt=e.lineType||e.lineTypeName||"";if(!lt||/^BYLAYER$/i.test(lt))lt=LTL(L);const t0=chain[0]||"";for(const [a,b] of g)netSegs.push({a,b,L,lt,t:t0});if(LEADL.test(L)&&g.length&&g.length<=5)netLead.push([g[0][0],...g.map(x=>x[1])]);continue}
       if(nseg<MAXSEG){const g=geom(e,m);if(g.length){nseg+=g.length;let h=null;
+        if(lineish){let lt=e.lineType||e.lineTypeName||"";if(!lt||/^BYLAYER$/i.test(lt))lt=LTL(L);const t0=chain[0]||"";for(const [a,b] of g)netSegs.push({a,b,L,lt,t:t0});if(LEADL.test(L)&&g.length<=5)netLead.push([g[0][0],...g.map(x=>x[1])])}
         if(depth===0&&e.type!=="CIRCLE"&&!(e.type==="ARC"&&g.length>=40)){let len=0;for(const [a,b] of g)len+=Math.hypot(b[0]-a[0],b[1]-a[1]);const mid=g[Math.floor(g.length/2)][0];
           if(len>0){h="l"+(++lh);(layLen[L]=layLen[L]||[]).push([len,h,mid[0],mid[1],g[0][0],g[g.length-1][1]])}}
         disp.push({type:"LINE",layer:L,pts:g.flatMap((s,i)=>i?[s[1]]:[s[0],s[1]]),h,len:0,area:0})}}
@@ -1536,6 +1631,10 @@ function cadAnalyze(name,db,unitOverride){
   if(plan.length){let a=0,b=0;for(const ins of inserts){if(ins.depth>0)continue;const s=layerSys(ins.layer);if(!s||s==="non")continue;if(inVp(ins.x,ins.y))a++;else if(!inDet(ins.x,ins.y))b++}
     for(const L in layLen){const s=layerSys(L);if(!s||s==="non")continue;for(const it of layLen[L]){if(inVp(it[2],it[3]))a+=0.05;else if(!inDet(it[2],it[3]))b+=0.05}}
     if(a<1&&b>0)usePlan=false}
+  // ---- pipe network from centerlines + outlines (shop drawings): sizes from OD, systems from labels/leaders
+  let net=null;const netLayers=new Set();
+  try{const ns=netSegs.filter(s=>inPlan((s.a[0]+s.b[0])/2,(s.a[1]+s.b[1])/2)&&!inLegend0(s.a[0],s.a[1]));const nt=texts.filter(t=>t.str&&inPlan(t.x,t.y)).map(t=>({x:t.x,y:t.y,str:t.str}));
+    if(ns.length>50){net=pipeNet(ns,netLead,nt,0.001/unit);let tot=0;for(const p of net.pieces)if(p.nom)tot+=p.l;if(tot*unit<5)net=null;else for(const p of net.pieces)if(p.nom)netLayers.add(p.L)}}catch(err){console.warn("pipeNet",err);net=null}
   // ---- pipe blocks: centerline + parallel outline
   const pipeInfo={};
   const blockPipe=(bn)=>{if(bn in pipeInfo)return pipeInfo[bn];const b=B[bn];let res=null;
@@ -1549,7 +1648,7 @@ function cadAnalyze(name,db,unitOverride){
   inserts.forEach((ins,i)=>{const pi=blockPipe(ins.name);if(!pi)return;if(ins.parent>=0&&isPipe.has(ins.parent))return;isPipe.add(i);
     const s=scl(ins.m);const ppr=/PPR|PP-R|HDPE|PB\b/i.test(ins.layer);const od=pi.r?2*pi.r*s*unit*1000:null;
     const segs=pi.segs.map(([a,b])=>[ap(ins.m,a[0],a[1]),ap(ins.m,b[0],b[1])]);const mx=(segs[0][0][0]+segs[0][1][0])/2,my=(segs[0][0][1]+segs[0][1][1])/2;
-    if(!inPlan(mx,my))return;if(od&&!nominalFromOD(od,ppr)&&od>12)return;if(BAD_PIPE_LAYER.test(ins.layer)||ANON.test(ins.layer))return;pipes.push({layer:ins.layer,name:ins.name,len:pi.len*s*unit,od,size:od?nominalFromOD(od,ppr):null,segs,mx,my,depth:ins.depth,chain:ins.chain.join('>')})});
+    if(!inPlan(mx,my)||netLayers.has(ins.layer))return;if(od&&!nominalFromOD(od,ppr)&&od>12)return;if(BAD_PIPE_LAYER.test(ins.layer)||ANON.test(ins.layer))return;pipes.push({layer:ins.layer,name:ins.name,len:pi.len*s*unit,od,size:od?nominalFromOD(od,ppr):null,segs,mx,my,depth:ins.depth,chain:ins.chain.join('>')})});
   const fl=pipes.reduce((a,p)=>{a[/FP|FIRE|SPK|SPRINK|ดับเพลิง/i.test(p.layer)?0:1]+=p.len;return a},[0,0]);
   const fireCtx=fl[0]>fl[1]||/FP|FIRE|ดับเพลิง|SPRINK/i.test(name);
   const bcC={};const blockCenter=bn=>{if(bn in bcC)return bcC[bn];const b=B[bn];let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
@@ -1652,7 +1751,7 @@ function cadAnalyze(name,db,unitOverride){
     const its=layLen[L].filter(it=>inPlan(it[2],it[3])&&!inLegend(it[2],it[3]));if(its.length<2)continue;const hitDev=new Set();let hitEnds=0;
     for(const it of its){let h=0;for(const q of [it[4],it[5]])for(let i=0;i<ePts.length;i++){const p=ePts[i];if((p[0]-q[0])**2+(p[1]-q[1])**2<touchR2){hitDev.add(i);h=1}}hitEnds+=h}
     if(hitDev.size>=3&&hitEnds/its.length>=(L==="0"?0.4:0.25))autoE[L]=hitDev.size}
-  for(const L in layLen){const ls=autoE[L]?C_E:layerSys(L);if(!ls||ls==="non")continue;if(pipes.some(p=>p.layer===L))continue;if(/TXT|TEXT|DIM|ANNO|GRID|HATCH|SYMB|LEGEND|TAG|NOTE|TITLE/i.test(L))continue;
+  for(const L in layLen){const ls=autoE[L]?C_E:layerSys(L);if(!ls||ls==="non")continue;if(pipes.some(p=>p.layer===L)||netLayers.has(L))continue;if(/TXT|TEXT|DIM|ANNO|GRID|HATCH|SYMB|LEGEND|TAG|NOTE|TITLE/i.test(L))continue;
     const its=layLen[L].filter(it=>inPlan(it[2],it[3])&&!inLegend(it[2],it[3]));if(!its.length)continue;const tot=its.reduce((t,it)=>t+it[0],0);if(tot*unit<0.5||tot/its.length*unit<0.3)continue;
     for(const it of its)runs.push({L,len:it[0],h:it[1],m:[it[2],it[3]],a:it[4],b:it[5],spec:null})}
   // ---- plumbing runs drawn as lines: S W V KW RL CW HW (+ size labels such as 4"S, ø3" W, CW 1", 3/4"HW)
@@ -1666,7 +1765,7 @@ function cadAnalyze(name,db,unitOverride){
   const pLabs=[];for(const t of texts){if(!t.str||t.str.length>40||!inPlan(t.x,t.y)||inLegend(t.x,t.y))continue;const m=PLAB.exec(t.str.toUpperCase());if(!m)continue;
     const sys=(m[2]||m[3]).toUpperCase(),raw=m[1]||m[4],mm=/MM|มม/.test(t.str.toUpperCase());const sz=normIn(raw,mm);if(!sz||!PSYS[sys])continue;pLabs.push({x:t.x,y:t.y,sys,sz,str:t.str})}
   const pRuns=[];const pLayers={};
-  for(const L in layLen){if(/TXT|TEXT|DIM|ANNO|GRID|HATCH|SYMB|LEGEND|TAG|NOTE|TITLE|BORDER|FRAME|DEFPOINTS/i.test(L))continue;const ls=layerSys(L);if(ls&&ls!==C_P&&!(ls==="non"&&layP(L)&&(/^(KW|RL|CW|HW|S|W|V)$/i.test(L.trim())||/SOIL|WASTE|VENT|RAIN|SEWER|โสโครก|น้ำทิ้ง|น้ำฝน|น้ำดี|น้ำร้อน/i.test(L))))continue;if(pipes.some(p=>p.layer===L))continue;
+  for(const L in layLen){if(/TXT|TEXT|DIM|ANNO|GRID|HATCH|SYMB|LEGEND|TAG|NOTE|TITLE|BORDER|FRAME|DEFPOINTS/i.test(L))continue;const ls=layerSys(L);if(ls&&ls!==C_P&&!(ls==="non"&&layP(L)&&(/^(KW|RL|CW|HW|S|W|V)$/i.test(L.trim())||/SOIL|WASTE|VENT|RAIN|SEWER|โสโครก|น้ำทิ้ง|น้ำฝน|น้ำดี|น้ำร้อน/i.test(L))))continue;if(pipes.some(p=>p.layer===L)||netLayers.has(L))continue;
     const its=layLen[L].filter(it=>inPlan(it[2],it[3])&&!inLegend(it[2],it[3]));if(!its.length)continue;
     const lsys=layP(L);let near=0;if(!lsys){for(const lb of pLabs){let bd=(1.5/unit)**2,hit=false;for(const it of its){const d=(it[2]-lb.x)**2+(it[3]-lb.y)**2;if(d<bd){hit=true;break}}if(hit)near++}}
     if(!lsys&&ls!==C_P&&near<2)continue;pLayers[L]={sys:lsys,byLabel:!lsys&&ls!==C_P};for(const it of its)pRuns.push({L,len:it[0],h:it[1],m:[it[2],it[3]],a:it[4],b:it[5],ps:null})}
@@ -1684,6 +1783,18 @@ function cadAnalyze(name,db,unitOverride){
       out.push({id:`${name}|cadpipe|${k}`,file:name,kind:"auto",mtype:"len",label:`${nm}${g.sz?` ø${g.sz}"`:" (ไม่ทราบขนาด)"}`,layer:[...g.layers].join(", "),hint:`${g.sys} PIPE${g.sz?` ${g.sz}"`:""} ท่อ`,qty:g.len*unit,unit:"ม.",refs:{handles:g.hs},
         ...(code?{code,conf:g.guess||g.byLabel?2:3}:{}),sizeHint:g.sz?{inch:g.sz}:null,note:g.guess?"บางช่วงไม่มีป้ายขนาด ใช้ขนาดจากช่วงที่ต่อกันหรือที่พบมากใน Layer":"",
         src:`${name} · ${nm}${g.sz?` ø${g.sz}"`:""} · Layer ${[...g.layers].slice(0,3).join(", ")} · ${g.hs.length} เส้น · ความยาวตามแปลน (ไม่รวมท่อแนวดิ่ง)${g.labels.size?` · ป้ายในแบบ: ${[...g.labels].slice(0,3).join(" | ")}`:""}${g.byLabel?" · ชื่อ Layer ไม่บอกระบบ อ่านจากป้ายท่อ":""}`})}}
+  if(net){const NS={S:"ท่อโสโครก (S)",W:"ท่อน้ำทิ้ง (W)",V:"ท่ออากาศ (V)",KW:"ท่อน้ำทิ้งครัว (KW)",KV:"ท่ออากาศครัว (KV)",RL:"ท่อน้ำฝน (RL)",RD:"ท่อระบายน้ำหลังคา (RD)",CD:"ท่อน้ำทิ้งแอร์ (CD)",D:"ท่อระบายน้ำทิ้ง/น้ำล้นถัง (D)",CW:"ท่อน้ำดี (CW)",CWT:"ท่อน้ำดีจากถัง (CWT)",HW:"ท่อน้ำร้อน (HW)",HWR:"ท่อน้ำร้อนไหลกลับ (HWR)"};
+    const SRCN={label:"ป้ายในแบบ",connected:"ต่อเนื่องกับท่อที่มีป้าย",same:"Layer/ขนาดเดียวกับท่อที่มีป้าย",layer:"ชื่อ Layer",majority:"ระบบหลักของ Layer",none:""};
+    const NG={};for(const p of net.pieces){if(!p.nom)continue;const odd=p.odd||(!p.sys?"nosys":null);const k=(p.sys||"?")+"|"+p.nom+(odd?"|odd":"");
+      const g=NG[k]=NG[k]||{sys:p.sys,sz:p.nom,odd,len:0,hs:[],layers:new Set(),src:{},lab:0,szl:0,n:0};g.len+=p.l;g.n++;g.layers.add(p.L);g.src[p.src]=(g.src[p.src]||0)+p.l;if(p.szsrc)g.szl++;
+      const h=H();disp.push({type:"LINE",layer:p.L,pts:[p.a,p.b],h,len:0,area:0});g.hs.push(h)}
+    for(const k in NG){const g=NG[k];if(g.len*unit<0.05)continue;const ck=IN_CODE[g.sz];const sy=g.sys;
+      const pref=sy==="HW"||sy==="HWR"?["SAN-PPRH-","SAN-PPR-"]:sy==="CW"||sy==="CWT"?["SAN-PVC135-","SAN-PVC85-"]:["SAN-DRN-","SAN-PVC85-"];let code=null;if(ck&&!g.odd)for(const pf of pref)if(has(pf+ck)){code=pf+ck;break}
+      const main=Object.entries(g.src).sort((a,b)=>b[1]-a[1])[0][0];const nm=NS[sy]||"ท่อ (ไม่ทราบระบบ)";
+      const why=g.odd==="big"?"ขนาดใหญ่กว่าท่อทุกเส้นที่มีป้ายในระบบนี้ น่าจะเป็นข้อต่อ/ปลอก/ตัววาล์ว ควรตรวจ":g.odd==="small"?"ขนาดเล็กผิดปกติสำหรับท่อระบาย น่าจะเป็นข้อต่อ/ท่อดักกลิ่น ควรตรวจ":g.odd==="nosys"?"ไม่มีป้ายและชื่อ Layer ไม่บอกระบบ ควรตรวจ":"";
+      out.push({id:`${name}|cadnet|${k}`,file:name,kind:"auto",mtype:"len",label:`${nm} ø${g.sz}"${g.odd?" (ควรตรวจ)":""}`,layer:[...g.layers].join(", "),hint:`${sy||""} PIPE ${g.sz}" ท่อ`,qty:g.len*unit,unit:"ม.",refs:{handles:g.hs},
+        ...(code?{code,conf:main==="label"||main==="connected"?3:2}:{conf:1}),sizeHint:{inch:g.sz},note:why,pipeSys:sy,
+        src:`${name} · ${nm} ø${g.sz}" · Layer ${[...g.layers].slice(0,3).join(", ")} · ${g.n} ช่วง · ความยาวตามเส้นศูนย์กลางท่อในแปลน (ตัดเส้นซ้ำ ไม่รวมแนวดิ่ง) · ขนาดจากระยะผนังท่อ${g.szl?"/ป้าย":""} · ระบบจาก${SRCN[main]||main}${why?" · "+why:""}`})}}
   const specT=texts.filter(t=>t.str&&SPEC.test(t.str)&&inPlan(t.x,t.y)&&!inLegend(t.x,t.y));
   for(const t of specT){let best=null,bd=(3/unit)**2;for(const r of runs)for(const q of [r.a,r.b,r.m]){const d=(q[0]-t.x)**2+(q[1]-t.y)**2;if(d<bd){bd=d;best=r}}if(best&&!best.spec)best.spec=t.str}
   const near=(p,q)=>(p[0]-q[0])**2+(p[1]-q[1])**2<(0.25/unit)**2;
@@ -1732,7 +1843,7 @@ function cadAnalyze(name,db,unitOverride){
   for(const d of disp){if(d.pts)d.pts=d.pts.map(p=>[p[0],p[1]])}
   const tEnts=texts.filter(t=>t.str&&t.str.length<40).slice(0,8000).map(t=>({type:"TEXT",layer:t.layer,cx:t.x,cy:t.y,txt:t.str,th:t.h,len:0,area:0}));
   return {disp:{ents:disp.concat(tEnts),bbox:bb,unit,cad:true},takeoffs:out,
-    info:{usePlan,legend:LG,plan:plan.length,vps:vps.length,pipes:pipes.length,sym:Object.keys(found).length,allVps:vps,found:Object.fromEntries(Object.entries(found).map(([c,f])=>[c,f.pts.map((p,i)=>[Math.round(p[0]),Math.round(p[1])])])),symDbg:symDbg,dbg:pipes.map(p=>[p.layer,p.name,+p.len.toFixed(2),p.od&&+p.od.toFixed(1),p.size,!!p.fromLabel,Math.round(p.mx),Math.round(p.my),p.chain]),planR:plan}};
+    info:{net:net?{pieces:net.pieces.length,labels:net.labels.length}:{segs:netSegs.length,lead:netLead.length,nseg},usePlan,legend:LG,plan:plan.length,vps:vps.length,pipes:pipes.length,sym:Object.keys(found).length,allVps:vps,found:Object.fromEntries(Object.entries(found).map(([c,f])=>[c,f.pts.map((p,i)=>[Math.round(p[0]),Math.round(p[1])])])),symDbg:symDbg,dbg:pipes.map(p=>[p.layer,p.name,+p.len.toFixed(2),p.od&&+p.od.toFixed(1),p.size,!!p.fromLabel,Math.round(p.mx),Math.round(p.my),p.chain]),planR:plan}};
 }
 
 /* ======== QTO REPORT (pipe schedule / heads / equipment) ======== */
@@ -1800,6 +1911,8 @@ function rulesData(){const A=P.auto||{},v=x=>`[[${x}]]`,n=(x,u)=>v(`${+x||0} ${u
     `ค่าเผื่อสายไฟ ${n(A.wWaste,"%")} คูณท้ายสุด`,
     "สาย UTP / CAT6 / โคแอกซ์: อ่านจากป้ายข้างแนว คิด 1 เส้นตามแนวท่อ บวกค่าเผื่อแบบเดียวกัน (“4 PAIRS” คือจำนวนคู่ในสาย 1 เส้น ไม่ใช่ 4 เส้น)"]],
   ["6. ท่อน้ำ / ท่อดับเพลิง / ท่อลม",[
+    "แบบ Shop drawing ที่วาดท่อเป็นเส้นศูนย์กลาง (CENTER) + ผนังท่อ 2 ข้าง: ความยาว = เส้นศูนย์กลางในแปลนหลัก (ไม่นับรูปขยาย 1:20/1:30 และเส้นอ้างอิงสีเทา PLAN/P-PLAN) · ขนาด = ระยะผนังท่อ (OD) เทียบท่อมาตรฐาน PVC/PP-R/เหล็ก · ตัดเส้นที่วาดซ้ำทับกัน · ข้อต่อสั้นใช้ขนาดท่อที่ต่ออยู่ · เส้นโดดสั้นกว่า 0.4 ม. (ขาแขวน ก้านวาล์ว) ไม่นับ",
+    "ระบบท่ออ่านจากป้าย ø…\"-S / W / V / KW / RL / RD / CD / CW / CWT / HW / HWR ผ่านเส้นชี้ป้าย แล้วต่อไปตามท่อที่เชื่อมกัน · ถ้าป้ายบอกขนาดต่างจากที่วัดไม่เกิน 2 ขนาด ใช้ขนาดตามป้าย · ท่อที่ใหญ่กว่าทุกขนาดที่มีป้ายในระบบเดียวกัน หรือท่อระบายเล็กกว่า 1¼\" แยกเป็นรายการ “ควรตรวจ”",
     "ความยาวท่อจาก Block ท่อหรือเส้นบน Layer ท่อ ขนาดจากชื่อ Block หรือป้ายขนาดที่ใกล้ที่สุด",
     "ท่อสุขาภิบาลแยกตามระบบ S (โสโครก) W (น้ำทิ้ง) V (อากาศ) KW (น้ำทิ้งครัว) RL (น้ำฝน) CW (น้ำดี) HW (น้ำร้อน) จากชื่อ Layer หรือป้ายท่อ เช่น 4\"S, ø3\" W, CW 1\", 3/4\"HW · ป้ายใช้กับเส้นท่อที่ใกล้ที่สุด (ไม่เกิน 3 ม.) แล้วส่งต่อไปตามเส้นที่ต่อกัน · ราคา: S/W/V/KW/RL = ท่อ PVC ระบายน้ำชั้น 8.5, CW = PVC ชั้น 13.5 (โตกว่า 1 1/4\" ใช้ชั้น 8.5), HW = PP-R · ไม่รวมท่อแนวดิ่งและข้อต่อ",
     `ท่อดร็อปหัวสปริงเกลอร์ = จำนวนหัว × ${n(A.dropLen,"ม./หัว")} ใช้ท่อ ø1"`,
